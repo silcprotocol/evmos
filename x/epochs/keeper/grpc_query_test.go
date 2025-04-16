@@ -2,149 +2,136 @@ package keeper_test
 
 import (
 	"fmt"
-	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
-	sdktypes "github.com/cosmos/cosmos-sdk/types"
-
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
-	"github.com/evmos/evmos/v20/x/epochs/types"
+	"github.com/evmos/evmos/v12/x/epochs/types"
 )
 
-func TestEpochInfo(t *testing.T) {
+func (suite *KeeperTestSuite) TestEpochInfo() {
 	var (
-		// suite is defined here so it is available inside the malleate function.
-		suite  *KeeperTestSuite
 		req    *types.QueryEpochsInfoRequest
 		expRes *types.QueryEpochsInfoResponse
 	)
 
 	testCases := []struct {
 		name     string
-		malleate func() sdktypes.Context
+		malleate func()
 		expPass  bool
 	}{
 		{
-			"pass - default EpochInfos",
-			func() sdktypes.Context {
+			"default EpochInfos",
+			func() {
 				req = &types.QueryEpochsInfoRequest{}
 
-				ctx := suite.network.GetContext()
-				currentBlockHeight := ctx.BlockHeight()
-				currentBlockTime := ctx.BlockTime()
-
-				dayEpoch := types.EpochInfo{
+				day := types.EpochInfo{
 					Identifier:              types.DayEpochID,
-					Duration:                day,
-					CurrentEpoch:            1,
+					StartTime:               time.Time{},
+					Duration:                time.Hour * 24,
+					CurrentEpoch:            0,
 					CurrentEpochStartHeight: 1,
-					EpochCountingStarted:    true,
+					CurrentEpochStartTime:   time.Time{},
+					EpochCountingStarted:    false,
 				}
-				dayEpoch.StartTime = currentBlockTime
-				dayEpoch.CurrentEpochStartTime = currentBlockTime
-				dayEpoch.CurrentEpochStartHeight = currentBlockHeight
+				day.StartTime = suite.ctx.BlockTime()
+				day.CurrentEpochStartHeight = suite.ctx.BlockHeight()
 
-				weekEpoch := types.EpochInfo{
+				week := types.EpochInfo{
 					Identifier:              types.WeekEpochID,
-					Duration:                week,
-					CurrentEpoch:            1,
+					StartTime:               time.Time{},
+					Duration:                time.Hour * 24 * 7,
+					CurrentEpoch:            0,
 					CurrentEpochStartHeight: 1,
-					EpochCountingStarted:    true,
+					CurrentEpochStartTime:   time.Time{},
+					EpochCountingStarted:    false,
 				}
-				weekEpoch.StartTime = currentBlockTime
-				weekEpoch.CurrentEpochStartTime = currentBlockTime
-				weekEpoch.CurrentEpochStartHeight = currentBlockHeight
+				week.StartTime = suite.ctx.BlockTime()
+				week.CurrentEpochStartHeight = suite.ctx.BlockHeight()
 
 				expRes = &types.QueryEpochsInfoResponse{
-					Epochs: []types.EpochInfo{dayEpoch, weekEpoch},
+					Epochs: []types.EpochInfo{day, week},
 					Pagination: &query.PageResponse{
 						NextKey: nil,
 						Total:   uint64(2),
 					},
 				}
-
-				return ctx
 			},
 			true,
 		},
 		{
 			"set epoch info",
-			func() sdktypes.Context {
-				ctx := suite.network.GetContext()
-				currentBlockHeight := ctx.BlockHeight()
-				currentBlockTime := ctx.BlockTime()
-
-				dayEpoch := types.EpochInfo{
+			func() {
+				day := types.EpochInfo{
 					Identifier:              types.DayEpochID,
+					StartTime:               time.Time{},
 					Duration:                time.Hour * 24,
-					CurrentEpoch:            1,
+					CurrentEpoch:            0,
 					CurrentEpochStartHeight: 1,
-					EpochCountingStarted:    true,
+					CurrentEpochStartTime:   time.Time{},
+					EpochCountingStarted:    false,
 				}
-				dayEpoch.StartTime = currentBlockTime
-				dayEpoch.CurrentEpochStartTime = currentBlockTime
-				dayEpoch.CurrentEpochStartHeight = currentBlockHeight
+				day.StartTime = suite.ctx.BlockTime()
+				day.CurrentEpochStartHeight = suite.ctx.BlockHeight()
 
-				weekEpoch := types.EpochInfo{
+				week := types.EpochInfo{
 					Identifier:              types.WeekEpochID,
+					StartTime:               time.Time{},
 					Duration:                time.Hour * 24 * 7,
-					CurrentEpoch:            1,
+					CurrentEpoch:            0,
 					CurrentEpochStartHeight: 1,
-					EpochCountingStarted:    true,
+					CurrentEpochStartTime:   time.Time{},
+					EpochCountingStarted:    false,
 				}
-				weekEpoch.StartTime = currentBlockTime
-				weekEpoch.CurrentEpochStartTime = currentBlockTime
-				weekEpoch.CurrentEpochStartHeight = currentBlockHeight
+				week.StartTime = suite.ctx.BlockTime()
+				week.CurrentEpochStartHeight = suite.ctx.BlockHeight()
 
-				quarterEpoch := types.EpochInfo{
+				quarter := types.EpochInfo{
 					Identifier:              "quarter",
+					StartTime:               time.Time{},
 					Duration:                time.Hour * 24 * 7 * 13,
 					CurrentEpoch:            0,
 					CurrentEpochStartHeight: 1,
+					CurrentEpochStartTime:   time.Time{},
 					EpochCountingStarted:    false,
 				}
-
-				quarterEpoch.StartTime = currentBlockTime
-				quarterEpoch.CurrentEpochStartTime = currentBlockTime
-				quarterEpoch.CurrentEpochStartHeight = currentBlockHeight
-				suite.network.App.EpochsKeeper.SetEpochInfo(ctx, quarterEpoch)
+				quarter.StartTime = suite.ctx.BlockTime()
+				quarter.CurrentEpochStartHeight = suite.ctx.BlockHeight()
+				suite.app.EpochsKeeper.SetEpochInfo(suite.ctx, quarter)
+				suite.Commit()
 
 				req = &types.QueryEpochsInfoRequest{}
 				expRes = &types.QueryEpochsInfoResponse{
-					Epochs: []types.EpochInfo{dayEpoch, quarterEpoch, weekEpoch},
+					Epochs: []types.EpochInfo{day, quarter, week},
 					Pagination: &query.PageResponse{
 						NextKey: nil,
 						Total:   uint64(3),
 					},
 				}
-
-				return ctx
 			},
 			true,
 		},
 	}
 	for _, tc := range testCases {
-		t.Run(fmt.Sprintf("Case %s", tc.name), func(t *testing.T) {
-			// Default epoch infos at genesis with day and week.
-			suite = SetupTest([]types.EpochInfo{})
-			ctx := tc.malleate()
+		suite.Run(fmt.Sprintf("Case %s", tc.name), func() {
+			suite.SetupTest() // reset
 
-			res, err := suite.network.GetEpochsClient().EpochInfos(ctx, req)
+			ctx := sdk.WrapSDKContext(suite.ctx)
+			tc.malleate()
+
+			res, err := suite.queryClient.EpochInfos(ctx, req)
 			if tc.expPass {
-				require.NoError(t, err)
-				require.Equal(t, expRes, res)
+				suite.Require().NoError(err)
+				suite.Require().Equal(expRes, res)
 			} else {
-				require.Error(t, err)
+				suite.Require().Error(err)
 			}
 		})
 	}
 }
 
-func TestCurrentEpoch(t *testing.T) {
+func (suite *KeeperTestSuite) TestCurrentEpoch() {
 	var (
-		suite  *KeeperTestSuite
 		req    *types.QueryCurrentEpochRequest
 		expRes *types.QueryCurrentEpochResponse
 	)
@@ -155,47 +142,52 @@ func TestCurrentEpoch(t *testing.T) {
 		expPass  bool
 	}{
 		{
-			"fail - unknown identifier",
+			"unknown identifier",
 			func() {
+				defaultCurrentEpoch := int64(0)
 				req = &types.QueryCurrentEpochRequest{Identifier: "second"}
+				expRes = &types.QueryCurrentEpochResponse{
+					CurrentEpoch: defaultCurrentEpoch,
+				}
 			},
 			false,
 		},
 		{
-			"pass - week identifier",
+			"week - default currentEpoch",
 			func() {
-				currentEpoch := int64(1)
+				defaultCurrentEpoch := int64(0)
 				req = &types.QueryCurrentEpochRequest{Identifier: types.WeekEpochID}
 				expRes = &types.QueryCurrentEpochResponse{
-					CurrentEpoch: currentEpoch,
+					CurrentEpoch: defaultCurrentEpoch,
 				}
 			},
 			true,
 		},
 		{
-			"pass - day identifier",
+			"day - default currentEpoch",
 			func() {
-				currentEpoch := int64(1)
+				defaultCurrentEpoch := int64(0)
 				req = &types.QueryCurrentEpochRequest{Identifier: types.DayEpochID}
 				expRes = &types.QueryCurrentEpochResponse{
-					CurrentEpoch: currentEpoch,
+					CurrentEpoch: defaultCurrentEpoch,
 				}
 			},
 			true,
 		},
 	}
 	for _, tc := range testCases {
-		t.Run(fmt.Sprintf("Case %s", tc.name), func(t *testing.T) {
-			suite = SetupTest([]types.EpochInfo{})
+		suite.Run(fmt.Sprintf("Case %s", tc.name), func() {
+			suite.SetupTest() // reset
 
+			ctx := sdk.WrapSDKContext(suite.ctx)
 			tc.malleate()
 
-			res, err := suite.network.GetEpochsClient().CurrentEpoch(suite.network.GetContext(), req)
+			res, err := suite.queryClient.CurrentEpoch(ctx, req)
 			if tc.expPass {
-				require.NoError(t, err)
-				require.Equal(t, expRes, res)
+				suite.Require().NoError(err)
+				suite.Require().Equal(expRes, res)
 			} else {
-				require.Error(t, err)
+				suite.Require().Error(err)
 			}
 		})
 	}

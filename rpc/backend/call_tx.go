@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package backend
 
 import (
@@ -15,9 +28,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	rpctypes "github.com/evmos/evmos/v20/rpc/types"
-	"github.com/evmos/evmos/v20/x/evm/core/vm"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	rpctypes "github.com/evmos/evmos/v12/rpc/types"
+	"github.com/evmos/evmos/v12/types"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -37,9 +51,14 @@ func (b *Backend) Resend(args evmtypes.TransactionArgs, gasPrice *hexutil.Big, g
 
 	// The signer used should always be the 'latest' known one because we expect
 	// signers to be backwards-compatible with old transactions.
+	eip155ChainID, err := types.ParseChainID(b.clientCtx.ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+
 	cfg := b.ChainConfig()
 	if cfg == nil {
-		cfg = evmtypes.DefaultChainConfig(b.clientCtx.ChainID).EthereumConfig(nil)
+		cfg = evmtypes.DefaultChainConfig().EthereumConfig(eip155ChainID)
 	}
 
 	signer := ethtypes.LatestSigner(cfg)
@@ -122,9 +141,14 @@ func (b *Backend) SendRawTransaction(data hexutil.Bytes) (common.Hash, error) {
 		return common.Hash{}, err
 	}
 
-	baseDenom := evmtypes.GetEVMCoinDenom()
+	// Query params to use the EVM denomination
+	res, err := b.queryClient.QueryClient.Params(b.ctx, &evmtypes.QueryParamsRequest{})
+	if err != nil {
+		b.logger.Error("failed to query evm params", "error", err.Error())
+		return common.Hash{}, err
+	}
 
-	cosmosTx, err := ethereumTx.BuildTx(b.clientCtx.TxConfig.NewTxBuilder(), baseDenom)
+	cosmosTx, err := ethereumTx.BuildTx(b.clientCtx.TxConfig.NewTxBuilder(), res.Params.EvmDenom)
 	if err != nil {
 		b.logger.Error("failed to build cosmos tx", "error", err.Error())
 		return common.Hash{}, err
@@ -159,7 +183,7 @@ func (b *Backend) SetTxDefaults(args evmtypes.TransactionArgs) (evmtypes.Transac
 		return args, errors.New("both gasPrice and (maxFeePerGas or maxPriorityFeePerGas) specified")
 	}
 
-	head, _ := b.CurrentHeader() // #nosec G703 -- no need to check error cause we're already checking that head == nil
+	head := b.CurrentHeader()
 	if head == nil {
 		return args, errors.New("latest header is nil")
 	}
@@ -312,9 +336,6 @@ func (b *Backend) EstimateGas(args evmtypes.TransactionArgs, blockNrOptional *rp
 	if err != nil {
 		return 0, err
 	}
-	if err = handleRevertError(res.VmError, res.Ret); err != nil {
-		return 0, err
-	}
 	return hexutil.Uint64(res.Gas), nil
 }
 
@@ -364,8 +385,11 @@ func (b *Backend) DoCall(
 		return nil, err
 	}
 
-	if err = handleRevertError(res.VmError, res.Ret); err != nil {
-		return nil, err
+	if res.Failed() {
+		if res.VmError != vm.ErrExecutionReverted.Error() {
+			return nil, status.Error(codes.Internal, res.VmError)
+		}
+		return nil, evmtypes.NewExecErrorWithReason(res.Ret)
 	}
 
 	return res, nil
@@ -377,20 +401,14 @@ func (b *Backend) GasPrice() (*hexutil.Big, error) {
 		result *big.Int
 		err    error
 	)
-
-	head, err := b.CurrentHeader()
-	if err != nil {
-		return nil, err
-	}
-
-	if head.BaseFee != nil {
+	if head := b.CurrentHeader(); head.BaseFee != nil {
 		result, err = b.SuggestGasTipCap(head.BaseFee)
 		if err != nil {
 			return nil, err
 		}
 		result = result.Add(result, head.BaseFee)
 	} else {
-		result = b.RPCMinGasPrice()
+		result = big.NewInt(b.RPCMinGasPrice())
 	}
 
 	// return at least GlobalMinGasPrice from FeeMarket module
@@ -398,23 +416,10 @@ func (b *Backend) GasPrice() (*hexutil.Big, error) {
 	if err != nil {
 		return nil, err
 	}
-	if result.Cmp(minGasPrice) < 0 {
-		result = minGasPrice
+	minGasPriceInt := minGasPrice.TruncateInt().BigInt()
+	if result.Cmp(minGasPriceInt) < 0 {
+		result = minGasPriceInt
 	}
 
 	return (*hexutil.Big)(result), nil
-}
-
-// handleRevertError returns revert related error.
-func handleRevertError(vmError string, ret []byte) error {
-	if len(vmError) > 0 {
-		if vmError != vm.ErrExecutionReverted.Error() {
-			return status.Error(codes.Internal, vmError)
-		}
-		if len(ret) == 0 {
-			return errors.New(vmError)
-		}
-		return evmtypes.NewExecErrorWithReason(ret)
-	}
-	return nil
 }

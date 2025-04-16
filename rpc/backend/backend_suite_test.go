@@ -7,9 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	dbm "github.com/cosmos/cosmos-db"
+	dbm "github.com/tendermint/tm-db"
 
-	tmrpctypes "github.com/cometbft/cometbft/rpc/core/types"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/cosmos/cosmos-sdk/server"
@@ -17,16 +16,17 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/suite"
+	tmrpctypes "github.com/tendermint/tendermint/rpc/core/types"
 
-	"github.com/evmos/evmos/v20/crypto/hd"
-	"github.com/evmos/evmos/v20/encoding"
-	"github.com/evmos/evmos/v20/indexer"
-	"github.com/evmos/evmos/v20/rpc/backend/mocks"
-	rpctypes "github.com/evmos/evmos/v20/rpc/types"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
-	utiltx "github.com/evmos/evmos/v20/testutil/tx"
-	"github.com/evmos/evmos/v20/utils"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/crypto/hd"
+	"github.com/evmos/evmos/v12/encoding"
+	"github.com/evmos/evmos/v12/indexer"
+	"github.com/evmos/evmos/v12/rpc/backend/mocks"
+	rpctypes "github.com/evmos/evmos/v12/rpc/types"
+	utiltx "github.com/evmos/evmos/v12/testutil/tx"
+	"github.com/evmos/evmos/v12/utils"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 type BackendTestSuite struct {
@@ -71,29 +71,26 @@ func (suite *BackendTestSuite) SetupTest() {
 	suite.signer = utiltx.NewSigner(priv)
 	suite.Require().NoError(err)
 
-	nw := network.New()
-	encodingConfig := nw.GetEncodingConfig()
+	encodingConfig := encoding.MakeConfig(app.ModuleBasics)
 	clientCtx := client.Context{}.WithChainID(ChainID).
 		WithHeight(1).
 		WithTxConfig(encodingConfig.TxConfig).
 		WithKeyringDir(clientDir).
 		WithKeyring(keyRing).
-		WithAccountRetriever(client.TestAccountRetriever{Accounts: accounts}).
-		WithClient(mocks.NewClient(suite.T()))
+		WithAccountRetriever(client.TestAccountRetriever{Accounts: accounts})
 
 	allowUnprotectedTxs := false
 	idxer := indexer.NewKVIndexer(dbm.NewMemDB(), ctx.Logger, clientCtx)
 
 	suite.backend = NewBackend(ctx, ctx.Logger, clientCtx, allowUnprotectedTxs, idxer)
-	suite.backend.cfg.JSONRPC.GasCap = 0
-	suite.backend.cfg.JSONRPC.EVMTimeout = 0
-	suite.backend.cfg.JSONRPC.AllowInsecureUnlock = true
 	suite.backend.queryClient.QueryClient = mocks.NewEVMQueryClient(suite.T())
+	suite.backend.clientCtx.Client = mocks.NewClient(suite.T())
 	suite.backend.queryClient.FeeMarket = mocks.NewFeeMarketQueryClient(suite.T())
 	suite.backend.ctx = rpctypes.ContextWithHeight(1)
 
 	// Add codec
-	suite.backend.clientCtx.Codec = encodingConfig.Codec
+	encCfg := encoding.MakeConfig(app.ModuleBasics)
+	suite.backend.clientCtx.Codec = encCfg.Codec
 }
 
 // buildEthereumTx returns an example legacy Ethereum transaction
@@ -130,8 +127,8 @@ func (suite *BackendTestSuite) buildFormattedBlock(
 	baseFee *big.Int,
 ) map[string]interface{} {
 	header := resBlock.Block.Header
-	gasLimit := int64(^uint32(0))                                             // for `MaxGas = -1` (DefaultConsensusParams)
-	gasUsed := new(big.Int).SetUint64(uint64(blockRes.TxsResults[0].GasUsed)) //nolint:gosec // G115
+	gasLimit := int64(^uint32(0)) // for `MaxGas = -1` (DefaultConsensusParams)
+	gasUsed := new(big.Int).SetUint64(uint64(blockRes.TxsResults[0].GasUsed))
 
 	root := common.Hash{}.Bytes()
 	receipt := ethtypes.NewReceipt(root, false, gasUsed.Uint64())
@@ -143,7 +140,7 @@ func (suite *BackendTestSuite) buildFormattedBlock(
 			rpcTx, err := rpctypes.NewRPCTransaction(
 				tx.AsTransaction(),
 				common.BytesToHash(header.Hash()),
-				uint64(header.Height), //nolint:gosec // G115
+				uint64(header.Height),
 				uint64(0),
 				baseFee,
 				suite.backend.chainID,
@@ -169,7 +166,7 @@ func (suite *BackendTestSuite) buildFormattedBlock(
 
 func (suite *BackendTestSuite) generateTestKeyring(clientDir string) (keyring.Keyring, error) {
 	buf := bufio.NewReader(os.Stdin)
-	encCfg := encoding.MakeConfig()
+	encCfg := encoding.MakeConfig(app.ModuleBasics)
 	return keyring.New(sdk.KeyringServiceName(), keyring.BackendTest, clientDir, buf, encCfg.Codec, []keyring.Option{hd.EthSecp256k1Option()}...)
 }
 
@@ -177,14 +174,15 @@ func (suite *BackendTestSuite) signAndEncodeEthTx(msgEthereumTx *evmtypes.MsgEth
 	from, priv := utiltx.NewAddrKey()
 	signer := utiltx.NewSigner(priv)
 
+	queryClient := suite.backend.queryClient.QueryClient.(*mocks.EVMQueryClient)
+	RegisterParamsWithoutHeader(queryClient, 1)
+
 	ethSigner := ethtypes.LatestSigner(suite.backend.ChainConfig())
 	msgEthereumTx.From = from.String()
 	err := msgEthereumTx.Sign(ethSigner, signer)
 	suite.Require().NoError(err)
 
-	baseDenom := evmtypes.GetEVMCoinDenom()
-
-	tx, err := msgEthereumTx.BuildTx(suite.backend.clientCtx.TxConfig.NewTxBuilder(), baseDenom)
+	tx, err := msgEthereumTx.BuildTx(suite.backend.clientCtx.TxConfig.NewTxBuilder(), utils.BaseDenom)
 	suite.Require().NoError(err)
 
 	txEncoder := suite.backend.clientCtx.TxConfig.TxEncoder()

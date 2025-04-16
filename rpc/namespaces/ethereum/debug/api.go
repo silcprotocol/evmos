@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package debug
 
 import (
@@ -16,20 +29,19 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 
 	stderrors "github.com/pkg/errors"
 
 	"github.com/cosmos/cosmos-sdk/server"
 
-	"cosmossdk.io/log"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/rlp"
-
-	"github.com/evmos/evmos/v20/rpc/backend"
-	rpctypes "github.com/evmos/evmos/v20/rpc/types"
+	"github.com/evmos/evmos/v12/rpc/backend"
+	rpctypes "github.com/evmos/evmos/v12/rpc/types"
+	"github.com/tendermint/tendermint/libs/log"
 )
 
 // HandlerT keeps track of the cpu profiler and trace execution
@@ -113,7 +125,7 @@ func (a *API) BlockProfile(file string, nsec uint) error {
 	runtime.SetBlockProfileRate(1)
 	defer runtime.SetBlockProfileRate(0)
 
-	time.Sleep(time.Duration(nsec) * time.Second) //nolint:gosec
+	time.Sleep(time.Duration(nsec) * time.Second)
 	return writeProfile("block", file, a.logger)
 }
 
@@ -124,7 +136,7 @@ func (a *API) CpuProfile(file string, nsec uint) error { //nolint: golint, style
 	if err := a.StartCPUProfile(file); err != nil {
 		return err
 	}
-	time.Sleep(time.Duration(nsec) * time.Second) //nolint:gosec
+	time.Sleep(time.Duration(nsec) * time.Second)
 	return a.StopCPUProfile()
 }
 
@@ -143,7 +155,7 @@ func (a *API) GoTrace(file string, nsec uint) error {
 	if err := a.StartGoTrace(file); err != nil {
 		return err
 	}
-	time.Sleep(time.Duration(nsec) * time.Second) //nolint:gosec
+	time.Sleep(time.Duration(nsec) * time.Second)
 	return a.StopGoTrace()
 }
 
@@ -259,7 +271,7 @@ func (a *API) WriteMemProfile(file string) error {
 func (a *API) MutexProfile(file string, nsec uint) error {
 	a.logger.Debug("debug_mutexProfile", "file", file, "nsec", nsec)
 	runtime.SetMutexProfileFraction(1)
-	time.Sleep(time.Duration(nsec) * time.Second) // #nosec G115
+	time.Sleep(time.Duration(nsec) * time.Second)
 	defer runtime.SetMutexProfileFraction(0)
 	return writeProfile("mutex", file, a.logger)
 }
@@ -291,7 +303,7 @@ func (a *API) SetGCPercent(v int) int {
 
 // GetHeaderRlp retrieves the RLP encoded for of a single header.
 func (a *API) GetHeaderRlp(number uint64) (hexutil.Bytes, error) {
-	header, err := a.backend.HeaderByNumber(rpctypes.BlockNumber(number)) // #nosec G115
+	header, err := a.backend.HeaderByNumber(rpctypes.BlockNumber(number))
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +313,7 @@ func (a *API) GetHeaderRlp(number uint64) (hexutil.Bytes, error) {
 
 // GetBlockRlp retrieves the RLP encoded for of a single block.
 func (a *API) GetBlockRlp(number uint64) (hexutil.Bytes, error) {
-	block, err := a.backend.EthBlockByNumber(rpctypes.BlockNumber(number)) //#nosec G115
+	block, err := a.backend.EthBlockByNumber(rpctypes.BlockNumber(number))
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +323,7 @@ func (a *API) GetBlockRlp(number uint64) (hexutil.Bytes, error) {
 
 // PrintBlock retrieves a block and returns its pretty printed form.
 func (a *API) PrintBlock(number uint64) (string, error) {
-	block, err := a.backend.EthBlockByNumber(rpctypes.BlockNumber(number)) //#nosec G115
+	block, err := a.backend.EthBlockByNumber(rpctypes.BlockNumber(number))
 	if err != nil {
 		return "", err
 	}
@@ -321,7 +333,7 @@ func (a *API) PrintBlock(number uint64) (string, error) {
 
 // SeedHash retrieves the seed hash of a block.
 func (a *API) SeedHash(number uint64) (string, error) {
-	_, err := a.backend.HeaderByNumber(rpctypes.BlockNumber(number)) //#nosec G115
+	_, err := a.backend.HeaderByNumber(rpctypes.BlockNumber(number))
 	if err != nil {
 		return "", err
 	}

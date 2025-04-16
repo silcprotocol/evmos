@@ -1,45 +1,54 @@
 package keeper_test
 
 import (
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/factory"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/grpc"
-	testkeyring "github.com/evmos/evmos/v20/testutil/integration/evmos/keyring"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
+	"testing"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/x/feemarket/types"
 	"github.com/stretchr/testify/suite"
 )
 
 type KeeperTestSuite struct {
 	suite.Suite
 
-	network     *network.UnitTestNetwork
-	factory     factory.TxFactory
-	grpcHandler grpc.Handler
-	keyring     testkeyring.Keyring
+	ctx         sdk.Context
+	app         *app.Evmos
+	queryClient types.QueryClient
+	address     common.Address
+	consAddress sdk.ConsAddress
 
-	denom string
+	// for generate test tx
+	clientCtx client.Context
+	ethSigner ethtypes.Signer
+
+	appCodec codec.Codec
+	signer   keyring.Signer
+	denom    string
 }
 
-// SetupTest setup test environment
+var s *KeeperTestSuite
+
+func TestKeeperTestSuite(t *testing.T) {
+	s = new(KeeperTestSuite)
+	suite.Run(t, s)
+
+	// Run Ginkgo integration tests
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Keeper Suite")
+}
+
+// SetupTest setup test environment, it uses`require.TestingT` to support both `testing.T` and `testing.B`.
 func (suite *KeeperTestSuite) SetupTest() {
-	keyring := testkeyring.New(2)
-	nw := network.NewUnitTestNetwork(
-		network.WithPreFundedAccounts(keyring.GetAllAccAddrs()...),
-		network.WithCustomBaseAppOpts(baseapp.SetMinGasPrices("10aevmos")),
-	)
-	grpcHandler := grpc.NewIntegrationHandler(nw)
-	txFactory := factory.New(nw, grpcHandler)
-
-	ctx := nw.GetContext()
-	sk := nw.App.StakingKeeper
-	bondDenom, err := sk.BondDenom(ctx)
-	if err != nil {
-		panic(err)
-	}
-
-	suite.denom = bondDenom
-	suite.factory = txFactory
-	suite.grpcHandler = grpcHandler
-	suite.keyring = keyring
-	suite.network = nw
+	checkTx := false
+	suite.app = app.Setup(checkTx, nil)
+	suite.SetupApp(checkTx)
 }

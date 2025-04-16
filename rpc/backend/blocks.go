@@ -1,23 +1,37 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package backend
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"math/big"
 	"strconv"
 
-	tmrpctypes "github.com/cometbft/cometbft/rpc/core/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	grpctypes "github.com/cosmos/cosmos-sdk/types/grpc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/trie"
-	rpctypes "github.com/evmos/evmos/v20/rpc/types"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	rpctypes "github.com/evmos/evmos/v12/rpc/types"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 	"github.com/pkg/errors"
+	tmrpctypes "github.com/tendermint/tendermint/rpc/core/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -65,7 +79,7 @@ func (b *Backend) GetBlockByNumber(blockNum rpctypes.BlockNumber, fullTx bool) (
 		return nil, nil
 	}
 
-	blockRes, err := b.rpcClient.BlockResults(b.ctx, &resBlock.Block.Height)
+	blockRes, err := b.TendermintBlockResultByNumber(&resBlock.Block.Height)
 	if err != nil {
 		b.logger.Debug("failed to fetch block result from Tendermint", "height", blockNum, "error", err.Error())
 		return nil, nil
@@ -93,7 +107,7 @@ func (b *Backend) GetBlockByHash(hash common.Hash, fullTx bool) (map[string]inte
 		return nil, nil
 	}
 
-	blockRes, err := b.rpcClient.BlockResults(b.ctx, &resBlock.Block.Height)
+	blockRes, err := b.TendermintBlockResultByNumber(&resBlock.Block.Height)
 	if err != nil {
 		b.logger.Debug("failed to fetch block result from Tendermint", "block-hash", hash.String(), "error", err.Error())
 		return nil, nil
@@ -111,7 +125,7 @@ func (b *Backend) GetBlockByHash(hash common.Hash, fullTx bool) (map[string]inte
 // GetBlockTransactionCountByHash returns the number of Ethereum transactions in
 // the block identified by hash.
 func (b *Backend) GetBlockTransactionCountByHash(hash common.Hash) *hexutil.Uint {
-	block, err := b.rpcClient.BlockByHash(b.ctx, hash.Bytes())
+	block, err := b.clientCtx.Client.BlockByHash(b.ctx, hash.Bytes())
 	if err != nil {
 		b.logger.Debug("block not found", "hash", hash.Hex(), "error", err.Error())
 		return nil
@@ -145,7 +159,7 @@ func (b *Backend) GetBlockTransactionCountByNumber(blockNum rpctypes.BlockNumber
 // GetBlockTransactionCount returns the number of Ethereum transactions in a
 // given block.
 func (b *Backend) GetBlockTransactionCount(block *tmrpctypes.ResultBlock) *hexutil.Uint {
-	blockRes, err := b.rpcClient.BlockResults(b.ctx, &block.Block.Height)
+	blockRes, err := b.TendermintBlockResultByNumber(&block.Block.Height)
 	if err != nil {
 		return nil
 	}
@@ -165,9 +179,9 @@ func (b *Backend) TendermintBlockByNumber(blockNum rpctypes.BlockNumber) (*tmrpc
 		if err != nil {
 			return nil, err
 		}
-		height = int64(n) //#nosec G701 G115 -- checked for int overflow already
+		height = int64(n) //#nosec G701 -- checked for int overflow already
 	}
-	resBlock, err := b.rpcClient.Block(b.ctx, &height)
+	resBlock, err := b.clientCtx.Client.Block(b.ctx, &height)
 	if err != nil {
 		b.logger.Debug("tendermint client failed to get block", "height", height, "error", err.Error())
 		return nil, err
@@ -184,12 +198,12 @@ func (b *Backend) TendermintBlockByNumber(blockNum rpctypes.BlockNumber) (*tmrpc
 // TendermintBlockResultByNumber returns a Tendermint-formatted block result
 // by block number
 func (b *Backend) TendermintBlockResultByNumber(height *int64) (*tmrpctypes.ResultBlockResults, error) {
-	return b.rpcClient.BlockResults(b.ctx, height)
+	return b.clientCtx.Client.BlockResults(b.ctx, height)
 }
 
 // TendermintBlockByHash returns a Tendermint-formatted block by block number
 func (b *Backend) TendermintBlockByHash(blockHash common.Hash) (*tmrpctypes.ResultBlock, error) {
-	resBlock, err := b.rpcClient.BlockByHash(b.ctx, blockHash.Bytes())
+	resBlock, err := b.clientCtx.Client.BlockByHash(b.ctx, blockHash.Bytes())
 	if err != nil {
 		b.logger.Debug("tendermint client failed to get block", "blockHash", blockHash.Hex(), "error", err.Error())
 		return nil, err
@@ -223,16 +237,14 @@ func (b *Backend) BlockNumberFromTendermint(blockNrOrHash rpctypes.BlockNumberOr
 
 // BlockNumberFromTendermintByHash returns the block height of given block hash
 func (b *Backend) BlockNumberFromTendermintByHash(blockHash common.Hash) (*big.Int, error) {
-	resBlock, err := b.rpcClient.HeaderByHash(b.ctx, blockHash.Bytes())
+	resBlock, err := b.TendermintBlockByHash(blockHash)
 	if err != nil {
 		return nil, err
 	}
-
 	if resBlock == nil {
 		return nil, errors.Errorf("block not found for hash %s", blockHash.Hex())
 	}
-
-	return big.NewInt(resBlock.Header.Height), nil
+	return big.NewInt(resBlock.Block.Height), nil
 }
 
 // EthMsgsFromTendermintBlock returns all real MsgEthereumTxs from a
@@ -250,9 +262,8 @@ func (b *Backend) EthMsgsFromTendermintBlock(
 	for i, tx := range block.Txs {
 		// Check if tx exists on EVM by cross checking with blockResults:
 		//  - Include unsuccessful tx that exceeds block gas limit
-		//  - Include unsuccessful tx that failed when committing changes to stateDB
 		//  - Exclude unsuccessful tx with any other error but ExceedBlockGasLimit
-		if !rpctypes.TxSucessOrExpectedFailure(txResults[i]) {
+		if !rpctypes.TxSuccessOrExceedsBlockGasLimit(txResults[i]) {
 			b.logger.Debug("invalid tx result code", "cosmos-hash", hexutil.Encode(tx.Hash()))
 			continue
 		}
@@ -288,9 +299,9 @@ func (b *Backend) HeaderByNumber(blockNum rpctypes.BlockNumber) (*ethtypes.Heade
 		return nil, errors.Errorf("block not found for height %d", blockNum)
 	}
 
-	blockRes, err := b.rpcClient.BlockResults(b.ctx, &resBlock.Block.Height)
+	blockRes, err := b.TendermintBlockResultByNumber(&resBlock.Block.Height)
 	if err != nil {
-		return nil, errors.Errorf("block result not found for height %d", resBlock.Block.Height)
+		return nil, fmt.Errorf("block result not found for height %d", resBlock.Block.Height)
 	}
 
 	bloom, err := b.BlockBloom(blockRes)
@@ -310,47 +321,44 @@ func (b *Backend) HeaderByNumber(blockNum rpctypes.BlockNumber) (*ethtypes.Heade
 
 // HeaderByHash returns the block header identified by hash.
 func (b *Backend) HeaderByHash(blockHash common.Hash) (*ethtypes.Header, error) {
-	resHeader, err := b.rpcClient.HeaderByHash(b.ctx, blockHash.Bytes())
+	resBlock, err := b.TendermintBlockByHash(blockHash)
 	if err != nil {
 		return nil, err
 	}
-
-	if resHeader == nil {
-		return nil, errors.Errorf("header not found for hash %s", blockHash.Hex())
+	if resBlock == nil {
+		return nil, errors.Errorf("block not found for hash %s", blockHash.Hex())
 	}
 
-	height := resHeader.Header.Height
-
-	blockRes, err := b.rpcClient.BlockResults(b.ctx, &resHeader.Header.Height)
+	blockRes, err := b.TendermintBlockResultByNumber(&resBlock.Block.Height)
 	if err != nil {
-		return nil, errors.Errorf("block result not found for height %d", height)
+		return nil, errors.Errorf("block result not found for height %d", resBlock.Block.Height)
 	}
 
 	bloom, err := b.BlockBloom(blockRes)
 	if err != nil {
-		b.logger.Debug("HeaderByHash BlockBloom failed", "height", height)
+		b.logger.Debug("HeaderByHash BlockBloom failed", "height", resBlock.Block.Height)
 	}
 
 	baseFee, err := b.BaseFee(blockRes)
 	if err != nil {
 		// handle the error for pruned node.
-		b.logger.Error("failed to fetch Base Fee from prunned block. Check node prunning configuration", "height", height, "error", err)
+		b.logger.Error("failed to fetch Base Fee from prunned block. Check node prunning configuration", "height", resBlock.Block.Height, "error", err)
 	}
 
-	ethHeader := rpctypes.EthHeaderFromTendermint(*resHeader.Header, bloom, baseFee)
+	ethHeader := rpctypes.EthHeaderFromTendermint(resBlock.Block.Header, bloom, baseFee)
 	return ethHeader, nil
 }
 
 // BlockBloom query block bloom filter from block results
 func (b *Backend) BlockBloom(blockRes *tmrpctypes.ResultBlockResults) (ethtypes.Bloom, error) {
-	for _, event := range blockRes.FinalizeBlockEvents {
+	for _, event := range blockRes.EndBlockEvents {
 		if event.Type != evmtypes.EventTypeBlockBloom {
 			continue
 		}
 
 		for _, attr := range event.Attributes {
-			if attr.Key == evmtypes.AttributeKeyEthereumBloom {
-				return ethtypes.BytesToBloom([]byte(attr.Value)), nil
+			if bytes.Equal(attr.Key, bAttributeKeyEthereumBloom) {
+				return ethtypes.BytesToBloom(attr.Value), nil
 			}
 		}
 	}
@@ -382,8 +390,8 @@ func (b *Backend) RPCBlockFromTendermintBlock(
 		}
 
 		tx := ethMsg.AsTransaction()
-		height := uint64(block.Height) //nolint:gosec // G115 G701 -- checked for int overflow already
-		index := uint64(txIndex)       //nolint:gosec // G115 G701 -- checked for int overflow already
+		height := uint64(block.Height) //#nosec G701 -- checked for int overflow already
+		index := uint64(txIndex)       //#nosec G701 -- checked for int overflow already
 		rpcTx, err := rpctypes.NewRPCTransaction(
 			tx,
 			common.BytesToHash(block.Hash()),
@@ -443,7 +451,7 @@ func (b *Backend) RPCBlockFromTendermintBlock(
 			// block gas limit has exceeded, other txs must have failed with same reason.
 			break
 		}
-		gasUsed += uint64(txsResult.GetGasUsed()) //nolint:gosec // G115 -- checked for int overflow already
+		gasUsed += uint64(txsResult.GetGasUsed()) // #nosec G701 -- checked for int overflow already
 	}
 
 	formattedBlock := rpctypes.FormatBlock(
@@ -460,13 +468,12 @@ func (b *Backend) EthBlockByNumber(blockNum rpctypes.BlockNumber) (*ethtypes.Blo
 	if err != nil {
 		return nil, err
 	}
-
 	if resBlock == nil {
 		// block not found
 		return nil, fmt.Errorf("block not found for height %d", blockNum)
 	}
 
-	blockRes, err := b.rpcClient.BlockResults(b.ctx, &resBlock.Block.Height)
+	blockRes, err := b.TendermintBlockResultByNumber(&resBlock.Block.Height)
 	if err != nil {
 		return nil, fmt.Errorf("block result not found for height %d", resBlock.Block.Height)
 	}

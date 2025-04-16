@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package keeper
 
@@ -10,7 +23,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/evmos/evmos/v20/x/vesting/types"
+	"github.com/evmos/evmos/v12/x/vesting/types"
 )
 
 var _ types.QueryServer = Keeper{}
@@ -30,18 +43,29 @@ func (k Keeper) Balances(
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	clawbackAccount, err := k.GetClawbackVestingAccount(goCtx, addr)
-	if err != nil {
+	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	// Get vesting account
+	acc := k.accountKeeper.GetAccount(ctx, addr)
+	if acc == nil {
 		return nil, status.Errorf(
-			codes.InvalidArgument,
-			"account at address '%s' either does not exist or is not a vesting account ", addr.String(),
+			codes.NotFound,
+			"account for address '%s'", req.Address,
 		)
 	}
 
-	ctx := sdk.UnwrapSDKContext(goCtx)
-	locked := clawbackAccount.GetLockedUpCoins(ctx.BlockTime())
-	unvested := clawbackAccount.GetVestingCoins(ctx.BlockTime())
-	vested := clawbackAccount.GetVestedCoins(ctx.BlockTime())
+	// Check if clawback vesting account
+	clawbackAccount, isClawback := acc.(*types.ClawbackVestingAccount)
+	if !isClawback {
+		return nil, status.Errorf(
+			codes.InvalidArgument,
+			"account at address '%s' is not a vesting account ", req.Address,
+		)
+	}
+
+	locked := clawbackAccount.GetLockedOnly(ctx.BlockTime())
+	unvested := clawbackAccount.GetUnvestedOnly(ctx.BlockTime())
+	vested := clawbackAccount.GetVestedOnly(ctx.BlockTime())
 
 	return &types.QueryBalancesResponse{
 		Locked:   locked,

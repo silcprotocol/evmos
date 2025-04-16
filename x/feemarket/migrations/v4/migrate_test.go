@@ -18,12 +18,12 @@ package v4_test
 import (
 	"testing"
 
-	storetypes "cosmossdk.io/store/types"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/evmos/evmos/v20/encoding"
-	v4 "github.com/evmos/evmos/v20/x/feemarket/migrations/v4"
-	"github.com/evmos/evmos/v20/x/feemarket/types"
+	"github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/encoding"
+	v4 "github.com/evmos/evmos/v12/x/feemarket/migrations/v4"
+	"github.com/evmos/evmos/v12/x/feemarket/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,16 +39,16 @@ func newMockSubspace(ps types.Params) mockSubspace {
 	return mockSubspace{ps: ps}
 }
 
-func (ms mockSubspace) GetParamSetIfExists(_ sdk.Context, ps types.LegacyParams) {
+func (ms mockSubspace) GetParamSetIfExists(ctx sdk.Context, ps types.LegacyParams) {
 	*ps.(*types.Params) = ms.ps
 }
 
 func TestMigrate(t *testing.T) {
-	encCfg := encoding.MakeConfig()
+	encCfg := encoding.MakeConfig(app.ModuleBasics)
 	cdc := encCfg.Codec
 
-	storeKey := storetypes.NewKVStoreKey(types.ModuleName)
-	tKey := storetypes.NewTransientStoreKey("transient_test")
+	storeKey := sdk.NewKVStoreKey(types.ModuleName)
+	tKey := sdk.NewTransientStoreKey("transient_test")
 	ctx := testutil.DefaultContext(storeKey, tKey)
 	kvStore := ctx.KVStore(storeKey)
 

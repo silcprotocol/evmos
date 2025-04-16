@@ -1,39 +1,38 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
 //
-// This config provides a convenient way to modify x/evm params and values.
-// Its primary purpose is to be used during application initialization.
-
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package types
 
 import (
-	"errors"
 	"math/big"
 	"strings"
 
-	errorsmod "cosmossdk.io/errors"
 	sdkmath "cosmossdk.io/math"
+
+	errorsmod "cosmossdk.io/errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+
 	"github.com/ethereum/go-ethereum/common"
-	geth "github.com/ethereum/go-ethereum/params"
-	"github.com/evmos/evmos/v20/types"
+	"github.com/ethereum/go-ethereum/params"
 )
-
-// testChainID represents the ChainID used for the purpose of testing.
-const testChainID string = "evmos_9002-1"
-
-// chainConfig is the chain configuration used in the EVM to defined which
-// opcodes are active based on Ethereum upgrades.
-var chainConfig *ChainConfig
 
 // EthereumConfig returns an Ethereum ChainConfig for EVM state transitions.
 // All the negative or nil values are converted to nil
-func (cc ChainConfig) EthereumConfig(chainID *big.Int) *geth.ChainConfig {
-	cID := new(big.Int).SetUint64(cc.ChainId)
-	if chainID != nil {
-		cID = chainID
-	}
-	return &geth.ChainConfig{
-		ChainID:                 cID,
+func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
+	return &params.ChainConfig{
+		ChainID:                 chainID,
 		HomesteadBlock:          getBlockValue(cc.HomesteadBlock),
 		DAOForkBlock:            getBlockValue(cc.DAOForkBlock),
 		DAOForkSupport:          cc.DAOForkSupport,
@@ -59,35 +58,27 @@ func (cc ChainConfig) EthereumConfig(chainID *big.Int) *geth.ChainConfig {
 	}
 }
 
-func DefaultChainConfig(chainID string) *ChainConfig {
-	if chainID == "" {
-		chainID = testChainID
-	}
+// DefaultChainConfig returns default evm parameters.
+func DefaultChainConfig() ChainConfig {
+	homesteadBlock := sdk.ZeroInt()
+	daoForkBlock := sdk.ZeroInt()
+	eip150Block := sdk.ZeroInt()
+	eip155Block := sdk.ZeroInt()
+	eip158Block := sdk.ZeroInt()
+	byzantiumBlock := sdk.ZeroInt()
+	constantinopleBlock := sdk.ZeroInt()
+	petersburgBlock := sdk.ZeroInt()
+	istanbulBlock := sdk.ZeroInt()
+	muirGlacierBlock := sdk.ZeroInt()
+	berlinBlock := sdk.ZeroInt()
+	londonBlock := sdk.ZeroInt()
+	arrowGlacierBlock := sdk.ZeroInt()
+	grayGlacierBlock := sdk.ZeroInt()
+	mergeNetsplitBlock := sdk.ZeroInt()
+	shanghaiBlock := sdk.ZeroInt()
+	cancunBlock := sdk.ZeroInt()
 
-	eip155ChainID, err := types.ParseChainID(chainID)
-	if err != nil {
-		panic(err)
-	}
-
-	homesteadBlock := sdkmath.ZeroInt()
-	daoForkBlock := sdkmath.ZeroInt()
-	eip150Block := sdkmath.ZeroInt()
-	eip155Block := sdkmath.ZeroInt()
-	eip158Block := sdkmath.ZeroInt()
-	byzantiumBlock := sdkmath.ZeroInt()
-	constantinopleBlock := sdkmath.ZeroInt()
-	petersburgBlock := sdkmath.ZeroInt()
-	istanbulBlock := sdkmath.ZeroInt()
-	muirGlacierBlock := sdkmath.ZeroInt()
-	berlinBlock := sdkmath.ZeroInt()
-	londonBlock := sdkmath.ZeroInt()
-	arrowGlacierBlock := sdkmath.ZeroInt()
-	grayGlacierBlock := sdkmath.ZeroInt()
-	mergeNetsplitBlock := sdkmath.ZeroInt()
-	shanghaiBlock := sdkmath.ZeroInt()
-	cancunBlock := sdkmath.ZeroInt()
-	cfg := &ChainConfig{
-		ChainId:             eip155ChainID.Uint64(),
+	return ChainConfig{
 		HomesteadBlock:      &homesteadBlock,
 		DAOForkBlock:        &daoForkBlock,
 		DAOForkSupport:      true,
@@ -108,26 +99,6 @@ func DefaultChainConfig(chainID string) *ChainConfig {
 		ShanghaiBlock:       &shanghaiBlock,
 		CancunBlock:         &cancunBlock,
 	}
-	return cfg
-}
-
-// setChainConfig allows to set the `chainConfig` variable modifying the
-// default values. The method is private because it should only be called once
-// in the EVMConfigurator.
-func setChainConfig(cc *ChainConfig) error {
-	if chainConfig != nil {
-		return errors.New("chainConfig already set. Cannot set again the chainConfig")
-	}
-	config := DefaultChainConfig("")
-	if cc != nil {
-		config = cc
-	}
-	if err := config.Validate(); err != nil {
-		return err
-	}
-	chainConfig = config
-
-	return nil
 }
 
 func getBlockValue(block *sdkmath.Int) *big.Int {

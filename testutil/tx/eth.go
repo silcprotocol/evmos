@@ -1,9 +1,21 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package tx
 
 import (
-	"context"
 	"encoding/json"
 	"math/big"
 
@@ -19,25 +31,25 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
-	"github.com/evmos/evmos/v20/app"
-	"github.com/evmos/evmos/v20/server/config"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/server/config"
+	"github.com/evmos/evmos/v12/utils"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 // PrepareEthTx creates an ethereum tx and signs it with the provided messages and private key.
 // It returns the signed transaction and an error
 func PrepareEthTx(
 	txCfg client.TxConfig,
+	appEvmos *app.Evmos,
 	priv cryptotypes.PrivKey,
 	msgs ...sdk.Msg,
 ) (authsigning.Tx, error) {
 	txBuilder := txCfg.NewTxBuilder()
 
-	signer := ethtypes.LatestSignerForChainID(evmtypes.GetEthChainConfig().ChainID)
+	signer := ethtypes.LatestSignerForChainID(appEvmos.EvmKeeper.ChainID())
 	txFee := sdk.Coins{}
 	txGasLimit := uint64(0)
-
-	baseDenom := evmtypes.GetEVMCoinDenom()
 
 	// Sign messages and compute gas/fees.
 	for _, m := range msgs {
@@ -56,7 +68,7 @@ func PrepareEthTx(
 		msg.From = ""
 
 		txGasLimit += msg.GetGas()
-		txFee = txFee.Add(sdk.Coin{Denom: baseDenom, Amount: sdkmath.NewIntFromBigInt(msg.GetFee())})
+		txFee = txFee.Add(sdk.Coin{Denom: utils.BaseDenom, Amount: sdkmath.NewIntFromBigInt(msg.GetFee())})
 	}
 
 	if err := txBuilder.SetMsgs(msgs...); err != nil {
@@ -101,23 +113,17 @@ func CreateEthTx(
 ) (*evmtypes.MsgEthereumTx, error) {
 	toAddr := common.BytesToAddress(dest.Bytes())
 	fromAddr := common.BytesToAddress(from.Bytes())
-	chainID := evmtypes.GetEthChainConfig().ChainID
-
-	baseFeeRes, err := appEvmos.EvmKeeper.BaseFee(ctx, &evmtypes.QueryBaseFeeRequest{})
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to get fee during eth tx creation")
-	}
-	baseFee := baseFeeRes.BaseFee.BigInt()
+	chainID := appEvmos.EvmKeeper.ChainID()
 
 	// When we send multiple Ethereum Tx's in one Cosmos Tx, we need to increment the nonce for each one.
-	nonce := appEvmos.EvmKeeper.GetNonce(ctx, fromAddr) + uint64(nonceIncrement) //nolint:gosec // G115
+	nonce := appEvmos.EvmKeeper.GetNonce(ctx, fromAddr) + uint64(nonceIncrement)
 	evmTxParams := &evmtypes.EvmTxArgs{
 		ChainID:   chainID,
 		Nonce:     nonce,
 		To:        &toAddr,
 		Amount:    amount,
 		GasLimit:  100000,
-		GasFeeCap: baseFee,
+		GasFeeCap: appEvmos.FeeMarketKeeper.GetBaseFee(ctx),
 		GasTipCap: big.NewInt(1),
 		Accesses:  &ethtypes.AccessList{},
 	}
@@ -126,7 +132,7 @@ func CreateEthTx(
 
 	// If we are creating multiple eth Tx's with different senders, we need to sign here rather than later.
 	if privKey != nil {
-		signer := ethtypes.LatestSignerForChainID(evmtypes.GetEthChainConfig().ChainID)
+		signer := ethtypes.LatestSignerForChainID(appEvmos.EvmKeeper.ChainID())
 		err := msgEthereumTx.Sign(signer, NewSigner(privKey))
 		if err != nil {
 			return nil, err
@@ -139,7 +145,7 @@ func CreateEthTx(
 // GasLimit estimates the gas limit for the provided parameters. To achieve
 // this, need to provide the corresponding QueryClient to call the
 // `eth_estimateGas` rpc method. If not provided, returns a default value
-func GasLimit(ctx context.Context, from common.Address, data evmtypes.HexString, queryClientEvm evmtypes.QueryClient) (uint64, error) {
+func GasLimit(ctx sdk.Context, from common.Address, data evmtypes.HexString, queryClientEvm evmtypes.QueryClient) (uint64, error) {
 	// default gas limit (used if no queryClientEvm is provided)
 	gas := uint64(100000000000)
 
@@ -152,7 +158,8 @@ func GasLimit(ctx context.Context, from common.Address, data evmtypes.HexString,
 			return gas, err
 		}
 
-		res, err := queryClientEvm.EstimateGas(ctx, &evmtypes.EthCallRequest{
+		goCtx := sdk.WrapSDKContext(ctx)
+		res, err := queryClientEvm.EstimateGas(goCtx, &evmtypes.EthCallRequest{
 			Args:   args,
 			GasCap: config.DefaultGasCap,
 		})

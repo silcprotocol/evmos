@@ -1,16 +1,23 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package keeper
 
 import (
-	"fmt"
-	"slices"
-	"sort"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/evmos/evmos/v20/utils"
-	"github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/x/evm/types"
 )
 
 // GetParams returns the total set of evm parameters.
@@ -26,10 +33,6 @@ func (k Keeper) GetParams(ctx sdk.Context) (params types.Params) {
 
 // SetParams sets the EVM params each in their individual key for better get performance
 func (k Keeper) SetParams(ctx sdk.Context, params types.Params) error {
-	// NOTE: We need to sort the precompiles in order to enable searching with binary search
-	// in params.IsActivePrecompile.
-	slices.Sort(params.ActiveStaticPrecompiles)
-
 	if err := params.Validate(); err != nil {
 		return err
 	}
@@ -49,52 +52,4 @@ func (k Keeper) GetLegacyParams(ctx sdk.Context) types.Params {
 	var params types.Params
 	k.ss.GetParamSetIfExists(ctx, &params)
 	return params
-}
-
-// EnableStaticPrecompiles appends the addresses of the given Precompiles to the list
-// of active static precompiles.
-func (k Keeper) EnableStaticPrecompiles(ctx sdk.Context, addresses ...common.Address) error {
-	params := k.GetParams(ctx)
-	activePrecompiles := params.ActiveStaticPrecompiles
-
-	// Append and sort the new precompiles
-	updatedPrecompiles, err := appendPrecompiles(activePrecompiles, addresses...)
-	if err != nil {
-		return err
-	}
-
-	params.ActiveStaticPrecompiles = updatedPrecompiles
-	return k.SetParams(ctx, params)
-}
-
-func appendPrecompiles(existingPrecompiles []string, addresses ...common.Address) ([]string, error) {
-	// check for duplicates
-	hexAddresses := make([]string, len(addresses))
-	for i := range addresses {
-		addrHex := addresses[i].Hex()
-		if slices.Contains(existingPrecompiles, addrHex) {
-			return nil, fmt.Errorf("precompile already registered: %s", addrHex)
-		}
-		hexAddresses[i] = addrHex
-	}
-
-	existingLength := len(existingPrecompiles)
-	updatedPrecompiles := make([]string, existingLength+len(hexAddresses))
-	copy(updatedPrecompiles, existingPrecompiles)
-	copy(updatedPrecompiles[existingLength:], hexAddresses)
-
-	utils.SortSlice(updatedPrecompiles)
-	return updatedPrecompiles, nil
-}
-
-// EnableEIPs enables the given EIPs in the EVM parameters.
-func (k Keeper) EnableEIPs(ctx sdk.Context, eips ...string) error {
-	evmParams := k.GetParams(ctx)
-	evmParams.ExtraEIPs = append(evmParams.ExtraEIPs, eips...)
-
-	sort.Slice(evmParams.ExtraEIPs, func(i, j int) bool {
-		return evmParams.ExtraEIPs[i] < evmParams.ExtraEIPs[j]
-	})
-
-	return k.SetParams(ctx, evmParams)
 }

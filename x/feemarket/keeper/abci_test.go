@@ -1,20 +1,13 @@
 package keeper_test
 
 import (
-	"testing"
+	"fmt"
 
-	storetypes "cosmossdk.io/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
-	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/abci/types"
 )
 
-func TestEndBlock(t *testing.T) {
-	var (
-		nw  *network.UnitTestNetwork
-		ctx sdk.Context
-	)
-
+func (suite *KeeperTestSuite) TestEndBlock() {
 	testCases := []struct {
 		name         string
 		NoBaseFee    bool
@@ -31,32 +24,25 @@ func TestEndBlock(t *testing.T) {
 			"pass",
 			false,
 			func() {
-				meter := storetypes.NewGasMeter(uint64(1000000000))
-				ctx = ctx.WithBlockGasMeter(meter)
-				nw.App.FeeMarketKeeper.SetTransientBlockGasWanted(ctx, 5000000)
+				meter := sdk.NewGasMeter(uint64(1000000000))
+				suite.ctx = suite.ctx.WithBlockGasMeter(meter)
+				suite.app.FeeMarketKeeper.SetTransientBlockGasWanted(suite.ctx, 5000000)
 			},
 			uint64(2500000),
 		},
 	}
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// reset network and context
-			nw = network.NewUnitTestNetwork()
-			ctx = nw.GetContext()
-
-			params := nw.App.FeeMarketKeeper.GetParams(ctx)
+		suite.Run(fmt.Sprintf("Case %s", tc.name), func() {
+			suite.SetupTest() // reset
+			params := suite.app.FeeMarketKeeper.GetParams(suite.ctx)
 			params.NoBaseFee = tc.NoBaseFee
-
-			err := nw.App.FeeMarketKeeper.SetParams(ctx, params)
-			require.NoError(t, err)
+			err := suite.app.FeeMarketKeeper.SetParams(suite.ctx, params)
+			suite.Require().NoError(err)
 
 			tc.malleate()
-
-			err = nw.App.FeeMarketKeeper.EndBlock(ctx)
-			require.NoError(t, err)
-
-			gasWanted := nw.App.FeeMarketKeeper.GetBlockGasWanted(ctx)
-			require.Equal(t, tc.expGasWanted, gasWanted, tc.name)
+			suite.app.FeeMarketKeeper.EndBlock(suite.ctx, types.RequestEndBlock{Height: 1})
+			gasWanted := suite.app.FeeMarketKeeper.GetBlockGasWanted(suite.ctx)
+			suite.Require().Equal(tc.expGasWanted, gasWanted, tc.name)
 		})
 	}
 }

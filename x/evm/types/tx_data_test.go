@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	sdkmath "cosmossdk.io/math"
-	ethutils "github.com/evmos/evmos/v20/utils/eth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -84,7 +83,7 @@ func TestTxData_DeriveChainID(t *testing.T) {
 	for _, tc := range testCases {
 		v, _, _ := tc.data.GetRawSignatureValues()
 
-		chainID := ethutils.DeriveChainID(v)
+		chainID := DeriveChainID(v)
 		require.Equal(t, tc.expChainID, chainID, tc.msg)
 	}
 }

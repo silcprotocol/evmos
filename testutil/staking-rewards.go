@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package testutil
 
@@ -7,40 +20,18 @@ import (
 	"fmt"
 	"testing"
 
-	"cosmossdk.io/math"
+	sdkmath "cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	distributionkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
-	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
-	teststaking "github.com/cosmos/cosmos-sdk/x/staking/testutil"
+	"github.com/cosmos/cosmos-sdk/x/staking"
+	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	"github.com/evmos/evmos/v20/app"
-	testutiltx "github.com/evmos/evmos/v20/testutil/tx"
-	evmostypes "github.com/evmos/evmos/v20/types"
-	"github.com/stretchr/testify/require"
+	"github.com/evmos/evmos/v12/app"
+	testutiltx "github.com/evmos/evmos/v12/testutil/tx"
+	"github.com/evmos/evmos/v12/utils"
 )
-
-// CreateValidator creates a validator with the provided public key and stake amount
-func CreateValidator(ctx sdk.Context, t *testing.T, pubKey cryptotypes.PubKey, sk stakingkeeper.Keeper, stakeAmt math.Int) {
-	zeroDec := math.LegacyZeroDec()
-	stakingParams, err := sk.GetParams(ctx)
-	require.NoError(t, err)
-	stakingParams.BondDenom, err = sk.BondDenom(ctx)
-	require.NoError(t, err)
-	stakingParams.MinCommissionRate = zeroDec
-	err = sk.SetParams(ctx, stakingParams)
-	require.NoError(t, err)
-
-	stakingHelper := teststaking.NewHelper(t, ctx, &sk)
-	stakingHelper.Commission = stakingtypes.NewCommissionRates(zeroDec, zeroDec, zeroDec)
-	stakingHelper.Denom, err = sk.BondDenom(ctx)
-	require.NoError(t, err)
-
-	valAddr := sdk.ValAddress(pubKey.Address())
-	stakingHelper.CreateValidator(valAddr, pubKey, stakeAmt, true)
-}
 
 // PrepareAccountsForDelegationRewards prepares the test suite for testing to withdraw delegation rewards.
 //
@@ -57,10 +48,10 @@ func CreateValidator(ctx sdk.Context, t *testing.T, pubKey cryptotypes.PubKey, s
 //   - Allocate rewards to the validator.
 //
 // The function returns the updated context along with a potential error.
-func PrepareAccountsForDelegationRewards(t *testing.T, ctx sdk.Context, app *app.Evmos, addr sdk.AccAddress, balance math.Int, rewards ...math.Int) (sdk.Context, error) {
+func PrepareAccountsForDelegationRewards(t *testing.T, ctx sdk.Context, app *app.Evmos, addr sdk.AccAddress, balance sdkmath.Int, rewards ...sdkmath.Int) (sdk.Context, error) {
 	// Calculate the necessary amount of tokens to fund the account in order for the desired residual balance to
 	// be left after creating validators and delegating to them.
-	totalRewards := math.ZeroInt()
+	totalRewards := sdk.ZeroInt()
 	for _, reward := range rewards {
 		totalRewards = totalRewards.Add(reward)
 	}
@@ -86,7 +77,7 @@ func PrepareAccountsForDelegationRewards(t *testing.T, ctx sdk.Context, app *app
 
 	// set distribution module account balance which pays out the rewards
 	distrAcc := app.DistrKeeper.GetDistributionAccount(ctx)
-	err := FundModuleAccount(ctx, app.BankKeeper, distrAcc.GetName(), sdk.NewCoins(sdk.NewCoin(evmostypes.BaseDenom, totalRewards)))
+	err := FundModuleAccount(ctx, app.BankKeeper, distrAcc.GetName(), sdk.NewCoins(sdk.NewCoin(utils.BaseDenom, totalRewards)))
 	if err != nil {
 		return sdk.Context{}, fmt.Errorf("failed to fund distribution module account: %s", err.Error())
 	}
@@ -105,19 +96,15 @@ func PrepareAccountsForDelegationRewards(t *testing.T, ctx sdk.Context, app *app
 			return sdk.Context{}, fmt.Errorf("failed to fund validator account: %s", err.Error())
 		}
 
-		zeroDec := math.LegacyZeroDec()
-		stakingParams, err := app.StakingKeeper.GetParams(ctx)
-		if err != nil {
-			return sdk.Context{}, fmt.Errorf("failed to get staking params: %s", err.Error())
-		}
-		stakingParams.BondDenom = evmostypes.BaseDenom
+		zeroDec := sdk.ZeroDec()
+		stakingParams := app.StakingKeeper.GetParams(ctx)
+		stakingParams.BondDenom = utils.BaseDenom
 		stakingParams.MinCommissionRate = zeroDec
-		err = app.StakingKeeper.SetParams(ctx, stakingParams)
-		require.NoError(t, err)
+		app.StakingKeeper.SetParams(ctx, stakingParams)
 
-		stakingHelper := teststaking.NewHelper(t, ctx, app.StakingKeeper.Keeper)
+		stakingHelper := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 		stakingHelper.Commission = stakingtypes.NewCommissionRates(zeroDec, zeroDec, zeroDec)
-		stakingHelper.Denom = stakingParams.BondDenom
+		stakingHelper.Denom = utils.BaseDenom
 
 		valAddr := sdk.ValAddress(addr2.Bytes())
 		// self-delegate the same amount of tokens as the delegate address also stakes
@@ -127,32 +114,21 @@ func PrepareAccountsForDelegationRewards(t *testing.T, ctx sdk.Context, app *app
 
 		// end block to bond validator and increase block height
 		// Not using Commit() here because code panics due to invalid block height
-		_, err = app.StakingKeeper.EndBlocker(ctx)
-		require.NoError(t, err)
+		staking.EndBlocker(ctx, app.StakingKeeper)
 
 		// allocate rewards to validator (of these 50% will be paid out to the delegator)
-		validator, err := app.StakingKeeper.Validator(ctx, valAddr)
-		if err != nil {
-			return sdk.Context{}, fmt.Errorf("failed to get validator: %s", err.Error())
-		}
-		allocatedRewards := sdk.NewDecCoins(sdk.NewDecCoin(stakingParams.BondDenom, reward.Mul(math.NewInt(2))))
-		if err = app.DistrKeeper.AllocateTokensToValidator(ctx, validator, allocatedRewards); err != nil {
-			return sdk.Context{}, fmt.Errorf("failed to allocate tokens to validator: %s", err.Error())
-		}
+		validator := app.StakingKeeper.Validator(ctx, valAddr)
+		allocatedRewards := sdk.NewDecCoins(sdk.NewDecCoin(utils.BaseDenom, reward.Mul(sdk.NewInt(2))))
+		app.DistrKeeper.AllocateTokensToValidator(ctx, validator, allocatedRewards)
 	}
 
-	// Increase block height in ctx for the rewards calculation
-	// NOTE: this will only work for unit tests that use the context
-	// returned by this function
-	currentHeight := ctx.BlockHeight()
-	return ctx.WithBlockHeight(currentHeight + 1), nil
+	return ctx, nil
 }
 
 // GetTotalDelegationRewards returns the total delegation rewards that are currently
 // outstanding for the given address.
 func GetTotalDelegationRewards(ctx sdk.Context, distributionKeeper distributionkeeper.Keeper, addr sdk.AccAddress) (sdk.DecCoins, error) {
-	querier := distributionkeeper.NewQuerier(distributionKeeper)
-	resp, err := querier.DelegationTotalRewards(
+	resp, err := distributionKeeper.DelegationTotalRewards(
 		ctx,
 		&distributiontypes.QueryDelegationTotalRewardsRequest{
 			DelegatorAddress: addr.String(),

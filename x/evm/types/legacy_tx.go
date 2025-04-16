@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package types
 
 import (
@@ -10,8 +23,7 @@ import (
 	errorsmod "cosmossdk.io/errors"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/evmos/evmos/v20/types"
-	ethutils "github.com/evmos/evmos/v20/utils/eth"
+	"github.com/evmos/evmos/v12/types"
 )
 
 func NewLegacyTx(tx *ethtypes.Transaction) (*LegacyTx, error) {
@@ -69,7 +81,7 @@ func (tx *LegacyTx) Copy() TxData {
 // GetChainID returns the chain id field from the derived signature values
 func (tx *LegacyTx) GetChainID() *big.Int {
 	v, _, _ := tx.GetRawSignatureValues()
-	return ethutils.DeriveChainID(v)
+	return DeriveChainID(v)
 }
 
 // GetAccessList returns nil
@@ -125,7 +137,7 @@ func (tx *LegacyTx) GetTo() *common.Address {
 	return &to
 }
 
-// AsEthereumData returns an LegacyTx transaction tx from the proto-formatted
+// AsEthereumData returns an AccessListTx transaction tx from the proto-formatted
 // TxData defined on the Cosmos EVM.
 func (tx *LegacyTx) AsEthereumData() ethtypes.TxData {
 	v, r, s := tx.GetRawSignatureValues()
@@ -145,7 +157,7 @@ func (tx *LegacyTx) AsEthereumData() ethtypes.TxData {
 // GetRawSignatureValues returns the V, R, S signature values of the transaction.
 // The return values should not be modified by the caller.
 func (tx *LegacyTx) GetRawSignatureValues() (v, r, s *big.Int) {
-	return ethutils.RawSignatureValues(tx.V, tx.R, tx.S)
+	return rawSignatureValues(tx.V, tx.R, tx.S)
 }
 
 // SetSignatureValues sets the signature values to the transaction.
@@ -193,10 +205,19 @@ func (tx LegacyTx) Validate() error {
 		}
 	}
 
-	if tx.GetChainID() == nil {
+	chainID := tx.GetChainID()
+
+	if chainID == nil {
 		return errorsmod.Wrap(
 			errortypes.ErrInvalidChainID,
-			"chain ID must be derived from LegacyTx txs",
+			"chain ID must be present on AccessList txs",
+		)
+	}
+
+	if !(chainID.Cmp(big.NewInt(9001)) == 0 || chainID.Cmp(big.NewInt(9000)) == 0) {
+		return errorsmod.Wrapf(
+			errortypes.ErrInvalidChainID,
+			"chain ID must be 9000 or 9001 on Evmos, got %s", chainID,
 		)
 	}
 
@@ -214,16 +235,16 @@ func (tx LegacyTx) Cost() *big.Int {
 }
 
 // EffectiveGasPrice is the same as GasPrice for LegacyTx
-func (tx LegacyTx) EffectiveGasPrice(_ *big.Int) *big.Int {
+func (tx LegacyTx) EffectiveGasPrice(baseFee *big.Int) *big.Int {
 	return tx.GetGasPrice()
 }
 
 // EffectiveFee is the same as Fee for LegacyTx
-func (tx LegacyTx) EffectiveFee(_ *big.Int) *big.Int {
+func (tx LegacyTx) EffectiveFee(baseFee *big.Int) *big.Int {
 	return tx.Fee()
 }
 
 // EffectiveCost is the same as Cost for LegacyTx
-func (tx LegacyTx) EffectiveCost(_ *big.Int) *big.Int {
+func (tx LegacyTx) EffectiveCost(baseFee *big.Int) *big.Int {
 	return tx.Cost()
 }

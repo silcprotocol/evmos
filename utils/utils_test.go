@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/evmos/evmos/v20/crypto/ethsecp256k1"
-	"github.com/stretchr/testify/require"
+
+	"github.com/evmos/evmos/v12/crypto/ethsecp256k1"
 )
 
 func init() {
@@ -178,119 +179,6 @@ func TestEvmosCoinDenom(t *testing.T) {
 				require.Error(t, err, tc.name)
 			} else {
 				require.NoError(t, err, tc.name)
-			}
-		})
-	}
-}
-
-func TestAccAddressFromBech32(t *testing.T) {
-	testCases := []struct {
-		address      string
-		bech32Prefix string
-		expErr       bool
-		errContains  string
-	}{
-		{
-			"",
-			"",
-			true,
-			"empty address string is not allowed",
-		},
-		{
-			"cosmos1xv9tklw7d82sezh9haa573wufgy59vmwe6xxe5",
-			"stride",
-			true,
-			"invalid Bech32 prefix; expected stride, got cosmos",
-		},
-		{
-			"cosmos1xv9tklw7d82sezh9haa573wufgy59vmw5",
-			"cosmos",
-			true,
-			"decoding bech32 failed: invalid checksum",
-		},
-		{
-			"stride1mdna37zrprxl7kn0rj4e58ndp084fzzwcxhrh2",
-			"stride",
-			false,
-			"",
-		},
-	}
-
-	for _, tc := range testCases {
-		tc := tc //nolint:copyloopvar // Needed to work correctly with concurrent tests
-
-		t.Run(tc.address, func(t *testing.T) {
-			t.Parallel()
-
-			_, err := CreateAccAddressFromBech32(tc.address, tc.bech32Prefix)
-			if tc.expErr {
-				require.Error(t, err, "expected error while creating AccAddress")
-				require.Contains(t, err.Error(), tc.errContains, "expected different error")
-			} else {
-				require.NoError(t, err, "expected no error while creating AccAddress")
-			}
-		})
-	}
-}
-
-func TestAddressConversion(t *testing.T) {
-	hex := "0x7cB61D4117AE31a12E393a1Cfa3BaC666481D02E"
-	bech32 := "evmos10jmp6sgh4cc6zt3e8gw05wavvejgr5pwjnpcky"
-
-	hexAddr := common.HexToAddress(hex)
-	require.Equal(t, bech32, EthToCosmosAddr(hexAddr).String())
-	require.Equal(t, bech32, EthHexToCosmosAddr(hex).String())
-
-	accAddr := sdk.MustAccAddressFromBech32(bech32)
-	require.Equal(t, hex, CosmosToEthAddr(accAddr).Hex())
-
-	gotAddr, err := Bech32ToHexAddr(bech32)
-	require.NoError(t, err)
-	require.Equal(t, hex, gotAddr.Hex())
-}
-
-func TestGetIBCDenomAddress(t *testing.T) {
-	testCases := []struct {
-		name        string
-		denom       string
-		expErr      bool
-		expectedRes string
-	}{
-		{
-			"",
-			"test",
-			true,
-			"does not have 'ibc/' prefix",
-		},
-		{
-			"",
-			"ibc/",
-			true,
-			"is not a valid IBC voucher hash",
-		},
-		{
-			"",
-			"ibc/qqqqaaaaaa",
-			true,
-			"invalid denomination for cross-chain transfer",
-		},
-		{
-			"",
-			"ibc/DF63978F803A2E27CA5CC9B7631654CCF0BBC788B3B7F0A10200508E37C70992",
-			false,
-			"0x631654CCF0BBC788b3b7F0a10200508e37c70992",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			address, err := GetIBCDenomAddress(tc.denom)
-			if tc.expErr {
-				require.Error(t, err, "expected error while get ibc denom address")
-				require.Contains(t, err.Error(), tc.expectedRes, "expected different error")
-			} else {
-				require.NoError(t, err, "expected no error while get ibc denom address")
-				require.Equal(t, address.Hex(), tc.expectedRes)
 			}
 		})
 	}

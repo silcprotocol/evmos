@@ -1,16 +1,29 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package config
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"github.com/evmos/evmos/v20/types"
+	"github.com/evmos/evmos/v12/types"
 )
 
 const (
-	// Bech32Prefix defines the Bech32 prefix used for accounts on the Evmos blockchain
+	// Bech32Prefix defines the Bech32 prefix used for EthAccounts
 	Bech32Prefix = "evmos"
 
 	// Bech32PrefixAccAddr defines the Bech32 prefix of an account's address
@@ -27,6 +40,13 @@ const (
 	Bech32PrefixConsPub = Bech32Prefix + sdk.PrefixValidator + sdk.PrefixConsensus + sdk.PrefixPublic
 )
 
+const (
+	// DisplayDenom defines the denomination displayed to users in client applications.
+	DisplayDenom = "evmos"
+	// BaseDenom defines to the default denomination used in Evmos (staking, EVM, governance, etc.)
+	BaseDenom = "aevmos"
+)
+
 // SetBech32Prefixes sets the global prefixes to be used when serializing addresses and public keys to Bech32 strings.
 func SetBech32Prefixes(config *sdk.Config) {
 	config.SetBech32PrefixForAccount(Bech32PrefixAccAddr, Bech32PrefixAccPub)
@@ -39,4 +59,15 @@ func SetBip44CoinType(config *sdk.Config) {
 	config.SetCoinType(types.Bip44CoinType)
 	config.SetPurpose(sdk.Purpose)                  // Shared
 	config.SetFullFundraiserPath(types.BIP44HDPath) //nolint: staticcheck
+}
+
+// RegisterDenoms registers the base and display denominations to the SDK.
+func RegisterDenoms() {
+	if err := sdk.RegisterDenom(DisplayDenom, sdk.OneDec()); err != nil {
+		panic(err)
+	}
+
+	if err := sdk.RegisterDenom(BaseDenom, sdk.NewDecWithPrec(1, types.BaseDenomUnit)); err != nil {
+		panic(err)
+	}
 }

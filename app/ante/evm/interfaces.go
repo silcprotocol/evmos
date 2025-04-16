@@ -1,25 +1,39 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package evm
 
 import (
 	"math/big"
 
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
-	"github.com/evmos/evmos/v20/x/evm/core/vm"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
 
-	"github.com/evmos/evmos/v20/x/evm/statedb"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
-	feemarkettypes "github.com/evmos/evmos/v20/x/feemarket/types"
+	"github.com/evmos/evmos/v12/x/evm/statedb"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
+	feemarkettypes "github.com/evmos/evmos/v12/x/feemarket/types"
 )
 
 // EVMKeeper defines the expected keeper interface used on the AnteHandler
 type EVMKeeper interface { //nolint: revive
 	statedb.Keeper
+	DynamicFeeEVMKeeper
 
 	NewEVM(ctx sdk.Context, msg core.Message, cfg *statedb.EVMConfig, tracer vm.EVMLogger, stateDB vm.StateDB) *vm.EVM
 	DeductTxCostsFromUserBalance(ctx sdk.Context, fees sdk.Coins, from common.Address) error
@@ -27,19 +41,19 @@ type EVMKeeper interface { //nolint: revive
 	ResetTransientGasUsed(ctx sdk.Context)
 	GetTxIndexTransient(ctx sdk.Context) uint64
 	GetParams(ctx sdk.Context) evmtypes.Params
-	// GetBaseFee returns the BaseFee param from the fee market module
-	// adapted according to the evm denom decimals
-	GetBaseFee(ctx sdk.Context) *big.Int
-	// GetMinGasPrice returns the MinGasPrice param from the fee market module
-	// adapted according to the evm denom decimals
-	GetMinGasPrice(ctx sdk.Context) math.LegacyDec
 }
 
 type FeeMarketKeeper interface {
 	GetParams(ctx sdk.Context) (params feemarkettypes.Params)
 	AddTransientGasWanted(ctx sdk.Context, gasWanted uint64) (uint64, error)
 	GetBaseFeeEnabled(ctx sdk.Context) bool
-	GetBaseFee(ctx sdk.Context) math.LegacyDec
+}
+
+// DynamicFeeEVMKeeper is a subset of EVMKeeper interface that supports dynamic fee checker
+type DynamicFeeEVMKeeper interface {
+	ChainID() *big.Int
+	GetParams(ctx sdk.Context) evmtypes.Params
+	GetBaseFee(ctx sdk.Context, ethCfg *params.ChainConfig) *big.Int
 }
 
 type protoTxProvider interface {

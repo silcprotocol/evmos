@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package eip712
 
 import (
@@ -48,7 +61,7 @@ func LegacyWrapTxToTypedData(
 	domain := apitypes.TypedDataDomain{
 		Name:              "Cosmos Web3",
 		Version:           "1.0.0",
-		ChainId:           math.NewHexOrDecimal256(int64(chainID)), //nolint:gosec
+		ChainId:           math.NewHexOrDecimal256(int64(chainID)),
 		VerifyingContract: "cosmos",
 		Salt:              "0",
 	}
@@ -345,16 +358,16 @@ func jsonNameFromTag(tag reflect.StructTag) string {
 
 // Unpack the given Any value with Type/Value deconstruction
 func unpackAny(cdc codectypes.AnyUnpacker, field reflect.Value) (reflect.Type, reflect.Value, error) {
-	anyData, ok := field.Interface().(*codectypes.Any)
+	any, ok := field.Interface().(*codectypes.Any)
 	if !ok {
 		return nil, reflect.Value{}, errorsmod.Wrapf(errortypes.ErrPackAny, "%T", field.Interface())
 	}
 
 	anyWrapper := &cosmosAnyWrapper{
-		Type: anyData.TypeUrl,
+		Type: any.TypeUrl,
 	}
 
-	if err := cdc.UnpackAny(anyData, &anyWrapper.Value); err != nil {
+	if err := cdc.UnpackAny(any, &anyWrapper.Value); err != nil {
 		return nil, reflect.Value{}, errorsmod.Wrap(err, "failed to unpack Any in msg struct")
 	}
 
@@ -369,7 +382,7 @@ var (
 	addressType   = reflect.TypeOf(common.Address{})
 	bigIntType    = reflect.TypeOf(big.Int{})
 	cosmIntType   = reflect.TypeOf(sdkmath.Int{})
-	cosmDecType   = reflect.TypeOf(sdkmath.LegacyDec{})
+	cosmDecType   = reflect.TypeOf(sdk.Dec{})
 	timeType      = reflect.TypeOf(time.Time{})
 	cosmosAnyType = reflect.TypeOf(&codectypes.Any{})
 	edType        = reflect.TypeOf(ed25519.PubKey{})

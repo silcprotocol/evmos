@@ -3,28 +3,28 @@ package keeper_test
 import (
 	"testing"
 
-	"github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/x/evm/types"
 )
 
 func BenchmarkSetParams(b *testing.B) {
 	suite := KeeperTestSuite{}
-	suite.SetupTest()
+	suite.SetupTestWithT(b)
 	params := types.DefaultParams()
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = suite.network.App.EvmKeeper.SetParams(suite.network.GetContext(), params)
+		_ = suite.app.EvmKeeper.SetParams(suite.ctx, params)
 	}
 }
 
 func BenchmarkGetParams(b *testing.B) {
 	suite := KeeperTestSuite{}
-	suite.SetupTest()
+	suite.SetupTestWithT(b)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = suite.network.App.EvmKeeper.GetParams(suite.network.GetContext())
+		_ = suite.app.EvmKeeper.GetParams(suite.ctx)
 	}
 }

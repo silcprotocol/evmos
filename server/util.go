@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package server
 
 import (
@@ -8,7 +21,7 @@ import (
 	"time"
 
 	// TODO update import to local pkg when rpc pkg is migrated
-	"github.com/evmos/evmos/v20/server/config"
+	"github.com/evmos/evmos/v12/server/config"
 	"github.com/gorilla/mux"
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
 	"github.com/spf13/cobra"
@@ -18,9 +31,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/version"
 
-	"cosmossdk.io/log"
-	tmcmd "github.com/cometbft/cometbft/cmd/cometbft/commands"
-	rpcclient "github.com/cometbft/cometbft/rpc/jsonrpc/client"
+	tmcmd "github.com/tendermint/tendermint/cmd/tendermint/commands"
+	tmlog "github.com/tendermint/tendermint/libs/log"
+	rpcclient "github.com/tendermint/tendermint/rpc/jsonrpc/client"
 )
 
 // AddCommands adds server commands
@@ -42,7 +55,6 @@ func AddCommands(
 		sdkserver.VersionCmd(),
 		tmcmd.ResetAllCmd,
 		tmcmd.ResetStateCmd,
-		sdkserver.BootstrapStateCmd(opts.AppCreator),
 	)
 
 	startCmd := StartCmd(opts)
@@ -60,12 +72,7 @@ func AddCommands(
 	)
 }
 
-// ConnectTmWS connects to a Tendermint WebSocket (WS) server.
-// Parameters:
-// - tmRPCAddr: The RPC address of the Tendermint server.
-// - tmEndpoint: The WebSocket endpoint on the Tendermint server.
-// - logger: A logger instance used to log debug and error messages.
-func ConnectTmWS(tmRPCAddr, tmEndpoint string, logger log.Logger) *rpcclient.WSClient {
+func ConnectTmWS(tmRPCAddr, tmEndpoint string, logger tmlog.Logger) *rpcclient.WSClient {
 	tmWsClient, err := rpcclient.NewWS(tmRPCAddr, tmEndpoint,
 		rpcclient.MaxReconnectAttempts(256),
 		rpcclient.ReadWait(120*time.Second),
@@ -93,17 +100,11 @@ func ConnectTmWS(tmRPCAddr, tmEndpoint string, logger log.Logger) *rpcclient.WSC
 	return tmWsClient
 }
 
-// MountGRPCWebServices mounts gRPC-Web services on specific HTTP POST routes.
-// Parameters:
-// - router: The HTTP router instance to mount the routes on (using mux.Router).
-// - grpcWeb: The wrapped gRPC-Web server that will handle incoming gRPC-Web and WebSocket requests.
-// - grpcResources: A list of resource endpoints (URLs) that should be mounted for gRPC-Web POST requests.
-// - logger: A logger instance used to log information about the mounted resources.
 func MountGRPCWebServices(
 	router *mux.Router,
 	grpcWeb *grpcweb.WrappedGrpcServer,
 	grpcResources []string,
-	logger log.Logger,
+	logger tmlog.Logger,
 ) {
 	for _, res := range grpcResources {
 		logger.Info("[GRPC Web] HTTP POST mounted", "resource", res)

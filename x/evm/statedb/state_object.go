@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package statedb
 
 import (
@@ -7,11 +20,11 @@ import (
 	"math/big"
 	"sort"
 
-	storetypes "cosmossdk.io/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/ethereum/go-ethereum/crypto"
 )
+
+var emptyCodeHash = crypto.Keccak256(nil)
 
 // Account is the Ethereum consensus representation of accounts.
 // These objects are stored in the storage of auth module.
@@ -25,13 +38,13 @@ type Account struct {
 func NewEmptyAccount() *Account {
 	return &Account{
 		Balance:  new(big.Int),
-		CodeHash: types.EmptyCodeHash,
+		CodeHash: emptyCodeHash,
 	}
 }
 
 // IsContract returns if the account contains contract code.
 func (acct Account) IsContract() bool {
-	return !types.IsEmptyCodeHash(acct.CodeHash)
+	return !bytes.Equal(acct.CodeHash, emptyCodeHash)
 }
 
 // Storage represents in-memory cache/buffer of contract storage.
@@ -49,7 +62,7 @@ func (s Storage) SortedKeys() []common.Hash {
 	return keys
 }
 
-// stateObject is the state of an account
+// stateObject is the state of an acount
 type stateObject struct {
 	db *StateDB
 
@@ -72,11 +85,9 @@ func newObject(db *StateDB, address common.Address, account Account) *stateObjec
 	if account.Balance == nil {
 		account.Balance = new(big.Int)
 	}
-
 	if account.CodeHash == nil {
-		account.CodeHash = types.EmptyCodeHash
+		account.CodeHash = emptyCodeHash
 	}
-
 	return &stateObject{
 		db:            db,
 		address:       address,
@@ -88,9 +99,7 @@ func newObject(db *StateDB, address common.Address, account Account) *stateObjec
 
 // empty returns whether the account is considered empty.
 func (s *stateObject) empty() bool {
-	return s.account.Nonce == 0 &&
-		s.account.Balance.Sign() == 0 &&
-		types.IsEmptyCodeHash(s.account.CodeHash)
+	return s.account.Nonce == 0 && s.account.Balance.Sign() == 0 && bytes.Equal(s.account.CodeHash, emptyCodeHash)
 }
 
 func (s *stateObject) markSuicided() {
@@ -100,7 +109,6 @@ func (s *stateObject) markSuicided() {
 // AddBalance adds amount to s's balance.
 // It is used to add funds to the destination account of a transfer.
 func (s *stateObject) AddBalance(amount *big.Int) {
-	amount = types.AdjustExtraDecimalsBigInt(amount)
 	if amount.Sign() == 0 {
 		return
 	}
@@ -110,7 +118,6 @@ func (s *stateObject) AddBalance(amount *big.Int) {
 // SubBalance removes amount from s's balance.
 // It is used to remove funds from the origin account of a transfer.
 func (s *stateObject) SubBalance(amount *big.Int) {
-	amount = types.AdjustExtraDecimalsBigInt(amount)
 	if amount.Sign() == 0 {
 		return
 	}
@@ -124,16 +131,6 @@ func (s *stateObject) SetBalance(amount *big.Int) {
 		prev:    new(big.Int).Set(s.account.Balance),
 	})
 	s.setBalance(amount)
-}
-
-// AddPrecompileFn appends to the journal an entry
-// with a snapshot of the multi-store and events
-// previous to the precompile call
-func (s *stateObject) AddPrecompileFn(cms storetypes.CacheMultiStore, events sdk.Events) {
-	s.db.journal.append(precompileCallChange{
-		multiStore: cms,
-		events:     events,
-	})
 }
 
 func (s *stateObject) setBalance(amount *big.Int) {
@@ -154,14 +151,11 @@ func (s *stateObject) Code() []byte {
 	if s.code != nil {
 		return s.code
 	}
-
-	if types.IsEmptyCodeHash(s.CodeHash()) {
+	if bytes.Equal(s.CodeHash(), emptyCodeHash) {
 		return nil
 	}
-
 	code := s.db.keeper.GetCode(s.db.ctx, common.BytesToHash(s.CodeHash()))
 	s.code = code
-
 	return code
 }
 

@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package types
 
@@ -22,16 +35,14 @@ var (
 	ModuleCdc = codec.NewProtoCodec(codectypes.NewInterfaceRegistry())
 
 	// AminoCdc is a amino codec created to support amino JSON compatible msgs.
-	AminoCdc = codec.NewAminoCodec(amino) //nolint:staticcheck
+	AminoCdc = codec.NewAminoCodec(amino)
 )
 
 const (
 	// Amino names
 	convertERC20Name = "evmos/MsgConvertERC20"
-	convertCoinName  = "evmos/MsgConvertCoin" // keep it for backwards compatibility when querying txs
+	convertCoinName  = "evmos/MsgConvertCoin"
 	updateParams     = "evmos/erc20/MsgUpdateParams"
-	registerERC20    = "evmos/erc20/MsgRegisterERC20"
-	toggleConversion = "evmos/erc20/MsgToggleConversion"
 )
 
 // NOTE: This is required for the GetSignBytes function
@@ -44,15 +55,13 @@ func init() {
 func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 	registry.RegisterImplementations(
 		(*sdk.Msg)(nil),
-		&MsgConvertCoin{}, // keep it for backwards compatibility when querying txs
+		&MsgConvertCoin{},
 		&MsgConvertERC20{},
 		&MsgUpdateParams{},
-		&MsgRegisterERC20{},
-		&MsgToggleConversion{},
 	)
 	registry.RegisterImplementations(
 		(*govv1beta1.Content)(nil),
-		&RegisterCoinProposal{}, // Keep interface for backwards compatibility on proposals query
+		&RegisterCoinProposal{},
 		&RegisterERC20Proposal{},
 		&ToggleTokenConversionProposal{},
 	)
@@ -67,6 +76,4 @@ func RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) {
 	cdc.RegisterConcrete(&MsgUpdateParams{}, updateParams, nil)
 	cdc.RegisterConcrete(&MsgConvertERC20{}, convertERC20Name, nil)
 	cdc.RegisterConcrete(&MsgConvertCoin{}, convertCoinName, nil)
-	cdc.RegisterConcrete(&MsgRegisterERC20{}, registerERC20, nil)
-	cdc.RegisterConcrete(&MsgToggleConversion{}, toggleConversion, nil)
 }

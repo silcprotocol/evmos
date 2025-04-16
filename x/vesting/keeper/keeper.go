@@ -1,18 +1,30 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package keeper
 
 import (
 	"fmt"
 
-	"cosmossdk.io/log"
-	storetypes "cosmossdk.io/store/types"
 	"github.com/cosmos/cosmos-sdk/codec"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/tendermint/tendermint/libs/log"
 
-	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
-	"github.com/evmos/evmos/v20/x/vesting/types"
+	"github.com/evmos/evmos/v12/x/vesting/types"
 )
 
 // Keeper of this module maintains collections of vesting.
@@ -20,44 +32,25 @@ type Keeper struct {
 	storeKey storetypes.StoreKey
 	cdc      codec.BinaryCodec
 
-	accountKeeper      types.AccountKeeper
-	bankKeeper         types.BankKeeper
-	evmKeeper          types.EVMKeeper
-	stakingKeeper      types.StakingKeeper
-	distributionKeeper types.DistributionKeeper
-	govKeeper          govkeeper.Keeper
-
-	// The x/gov module account used for executing transaction by governance.
-	authority sdk.AccAddress
+	accountKeeper types.AccountKeeper
+	bankKeeper    types.BankKeeper
+	stakingKeeper types.StakingKeeper
 }
 
 // NewKeeper creates new instances of the vesting Keeper
 func NewKeeper(
 	storeKey storetypes.StoreKey,
-	authority sdk.AccAddress,
 	cdc codec.BinaryCodec,
 	ak types.AccountKeeper,
 	bk types.BankKeeper,
-	dk types.DistributionKeeper,
-	ek types.EVMKeeper,
 	sk types.StakingKeeper,
-	gk govkeeper.Keeper,
 ) Keeper {
-	// ensure gov module account is set and is not nil
-	if err := sdk.VerifyAddressFormat(authority); err != nil {
-		panic(err)
-	}
-
 	return Keeper{
-		storeKey:           storeKey,
-		authority:          authority,
-		cdc:                cdc,
-		distributionKeeper: dk,
-		accountKeeper:      ak,
-		bankKeeper:         bk,
-		evmKeeper:          ek,
-		stakingKeeper:      sk,
-		govKeeper:          gk,
+		storeKey:      storeKey,
+		cdc:           cdc,
+		accountKeeper: ak,
+		bankKeeper:    bk,
+		stakingKeeper: sk,
 	}
 }
 

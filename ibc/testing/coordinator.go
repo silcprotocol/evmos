@@ -1,20 +1,32 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package ibctesting
 
 import (
-	"math/rand"
 	"testing"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	simtestutil "github.com/cosmos/cosmos-sdk/testutil/sims"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	ibctesting "github.com/cosmos/ibc-go/v8/testing"
-	"github.com/evmos/evmos/v20/app"
+	ibctesting "github.com/cosmos/ibc-go/v6/testing"
+	ibchelpers "github.com/cosmos/ibc-go/v6/testing/simapp/helpers"
+	"github.com/evmos/evmos/v12/app"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,10 +42,11 @@ func NewCoordinator(t *testing.T, nEVMChains, mCosmosChains int) *ibctesting.Coo
 		CurrentTime: globalStartTime,
 	}
 
+	// setup EVM chains
+	ibctesting.DefaultTestingAppInit = DefaultTestingAppInit
+
 	for i := 1; i <= nEVMChains; i++ {
 		chainID := ibctesting.GetChainID(i)
-		// setup EVM chains
-		ibctesting.DefaultTestingAppInit = DefaultTestingAppInit(chainID)
 		chains[chainID] = NewTestChain(t, coord, chainID)
 	}
 
@@ -60,7 +73,7 @@ func SetupPath(coord *ibctesting.Coordinator, path *Path) {
 	CreateChannels(coord, path)
 }
 
-// SetupConnections is a helper function to create clients and the appropriate
+// SetupClientConnections is a helper function to create clients and the appropriate
 // connections on both the source and counterparty chain. It assumes the caller does not
 // anticipate any errors.
 func SetupConnections(coord *ibctesting.Coordinator, path *Path) {
@@ -123,25 +136,19 @@ func SetupClients(coord *ibctesting.Coordinator, path *Path) {
 }
 
 func SendMsgs(chain *ibctesting.TestChain, feeAmt int64, msgs ...sdk.Msg) (*sdk.Result, error) {
-	var (
-		bondDenom string
-		err       error
-	)
+	var bondDenom string
 	// ensure the chain has the latest time
 	chain.Coordinator.UpdateTimeForChain(chain)
 
 	if evmosChain, ok := chain.App.(*app.Evmos); ok {
-		bondDenom, err = evmosChain.StakingKeeper.BondDenom(chain.GetContext())
+		bondDenom = evmosChain.StakingKeeper.BondDenom(chain.GetContext())
 	} else {
-		bondDenom, err = chain.GetSimApp().StakingKeeper.BondDenom(chain.GetContext())
-	}
-	if err != nil {
-		return nil, err
+		bondDenom = chain.GetSimApp().StakingKeeper.BondDenom(chain.GetContext())
 	}
 
 	fee := sdk.Coins{sdk.NewInt64Coin(bondDenom, feeAmt)}
 	_, r, err := SignAndDeliver(
-		chain.TB,
+		chain.T,
 		chain.TxConfig,
 		chain.App.GetBaseApp(),
 		msgs,
@@ -176,16 +183,15 @@ func SendMsgs(chain *ibctesting.TestChain, feeAmt int64, msgs ...sdk.Msg) (*sdk.
 // Is a customization of IBC-go function that allows to modify the fee denom and amount
 // IBC-go implementation: https://github.com/cosmos/ibc-go/blob/d34cef7e075dda1a24a0a3e9b6d3eff406cc606c/testing/simapp/test_helpers.go#L332-L364
 func SignAndDeliver(
-	t testing.TB, txCfg client.TxConfig, app *baseapp.BaseApp, msgs []sdk.Msg,
+	t *testing.T, txCfg client.TxConfig, app *baseapp.BaseApp, msgs []sdk.Msg,
 	fee sdk.Coins,
 	chainID string, accNums, accSeqs []uint64, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
-	tx, err := simtestutil.GenSignedMockTx(
-		rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+	tx, err := ibchelpers.GenTx(
 		txCfg,
 		msgs,
 		fee,
-		simtestutil.DefaultGenTxGas,
+		ibchelpers.DefaultGenTxGas,
 		chainID,
 		accNums,
 		accSeqs,

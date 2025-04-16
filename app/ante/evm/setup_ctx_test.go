@@ -3,22 +3,19 @@ package evm_test
 import (
 	"math/big"
 
-	evmante "github.com/evmos/evmos/v20/app/ante/evm"
-	"github.com/evmos/evmos/v20/testutil"
+	evmante "github.com/evmos/evmos/v12/app/ante/evm"
+	"github.com/evmos/evmos/v12/testutil"
 
-	storetypes "cosmossdk.io/store/types"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	testutiltx "github.com/evmos/evmos/v20/testutil/tx"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	testutiltx "github.com/evmos/evmos/v12/testutil/tx"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 func (suite *AnteTestSuite) TestEthSetupContextDecorator() {
-	dec := evmante.NewEthSetUpContextDecorator(suite.GetNetwork().App.EvmKeeper)
-
-	evmChainID := evmtypes.GetEthChainConfig().ChainID
-
+	dec := evmante.NewEthSetUpContextDecorator(suite.app.EvmKeeper)
 	ethContractCreationTxParams := &evmtypes.EvmTxArgs{
-		ChainID:  evmChainID,
+		ChainID:  suite.app.EvmKeeper.ChainID(),
 		Nonce:    1,
 		Amount:   big.NewInt(10),
 		GasLimit: 1000,
@@ -41,7 +38,7 @@ func (suite *AnteTestSuite) TestEthSetupContextDecorator() {
 
 	for _, tc := range testCases {
 		suite.Run(tc.name, func() {
-			ctx, err := dec.AnteHandle(suite.GetNetwork().GetContext(), tc.tx, false, testutil.NextFn)
+			ctx, err := dec.AnteHandle(suite.ctx, tc.tx, false, testutil.NextFn)
 
 			if tc.expPass {
 				suite.Require().NoError(err)

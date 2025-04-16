@@ -1,23 +1,37 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package indexer
 
 import (
 	"fmt"
 
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/log"
-	abci "github.com/cometbft/cometbft/abci/types"
-	cmttypes "github.com/cometbft/cometbft/types"
-	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authante "github.com/cosmos/cosmos-sdk/x/auth/ante"
 	"github.com/ethereum/go-ethereum/common"
-	rpctypes "github.com/evmos/evmos/v20/rpc/types"
-	evmostypes "github.com/evmos/evmos/v20/types"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	rpctypes "github.com/evmos/evmos/v12/rpc/types"
+	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/libs/log"
+	tmtypes "github.com/tendermint/tendermint/types"
+	dbm "github.com/tendermint/tm-db"
+
+	evmostypes "github.com/evmos/evmos/v12/types"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 const (
@@ -47,7 +61,7 @@ func NewKVIndexer(db dbm.DB, logger log.Logger, clientCtx client.Context) *KVInd
 // - Parses eth Tx infos from cosmos-sdk events for every TxResult
 // - Iterates over all the messages of the Tx
 // - Builds and stores a indexer.TxResult based on parsed events for every message
-func (kv *KVIndexer) IndexBlock(block *cmttypes.Block, txResults []*abci.ExecTxResult) error {
+func (kv *KVIndexer) IndexBlock(block *tmtypes.Block, txResults []*abci.ResponseDeliverTx) error {
 	height := block.Header.Height
 
 	batch := kv.db.NewBatch()
@@ -57,7 +71,7 @@ func (kv *KVIndexer) IndexBlock(block *cmttypes.Block, txResults []*abci.ExecTxR
 	var ethTxIndex int32
 	for txIndex, tx := range block.Txs {
 		result := txResults[txIndex]
-		if !rpctypes.TxSucessOrExpectedFailure(result) {
+		if !rpctypes.TxSuccessOrExceedsBlockGasLimit(result) {
 			continue
 		}
 
@@ -84,8 +98,8 @@ func (kv *KVIndexer) IndexBlock(block *cmttypes.Block, txResults []*abci.ExecTxR
 
 			txResult := evmostypes.TxResult{
 				Height:     height,
-				TxIndex:    uint32(txIndex),  //nolint:gosec
-				MsgIndex:   uint32(msgIndex), //nolint:gosec
+				TxIndex:    uint32(txIndex),
+				MsgIndex:   uint32(msgIndex),
 				EthTxIndex: ethTxIndex,
 			}
 			if result.Code != abci.CodeTypeOK {
@@ -166,8 +180,8 @@ func TxHashKey(hash common.Hash) []byte {
 
 // TxIndexKey returns the key for db entry: `(block number, tx index) -> tx hash`
 func TxIndexKey(blockNumber int64, txIndex int32) []byte {
-	bz1 := sdk.Uint64ToBigEndian(uint64(blockNumber)) //nolint:gosec // G115
-	bz2 := sdk.Uint64ToBigEndian(uint64(txIndex))     //nolint:gosec // G115
+	bz1 := sdk.Uint64ToBigEndian(uint64(blockNumber))
+	bz2 := sdk.Uint64ToBigEndian(uint64(txIndex))
 	return append(append([]byte{KeyPrefixTxIndex}, bz1...), bz2...)
 }
 
@@ -227,5 +241,5 @@ func parseBlockNumberFromKey(key []byte) (int64, error) {
 		return 0, fmt.Errorf("wrong tx index key length, expect: %d, got: %d", TxIndexKeyLength, len(key))
 	}
 
-	return int64(sdk.BigEndianToUint64(key[1:9])), nil // #nosec G115
+	return int64(sdk.BigEndianToUint64(key[1:9])), nil
 }

@@ -4,14 +4,13 @@ import (
 	"testing"
 	"time"
 
-	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
-	"github.com/evmos/evmos/v20/utils"
-	feemarkettypes "github.com/evmos/evmos/v20/x/feemarket/types"
+	feemarkettypes "github.com/evmos/evmos/v12/x/feemarket/types"
 	"github.com/stretchr/testify/require"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	simapp "github.com/evmos/evmos/v20/app"
-	"github.com/evmos/evmos/v20/x/epochs"
-	"github.com/evmos/evmos/v20/x/epochs/types"
+	simapp "github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/x/epochs"
+	"github.com/evmos/evmos/v12/x/epochs/types"
 )
 
 func TestEpochsExportGenesis(t *testing.T) {
@@ -20,9 +19,8 @@ func TestEpochsExportGenesis(t *testing.T) {
 	feemarketGenesis.Params.EnableHeight = 1
 	feemarketGenesis.Params.NoBaseFee = false
 
-	chainID := utils.TestnetChainID + "-1"
-	app := simapp.Setup(false, feemarketGenesis, chainID)
-	ctx := app.BaseApp.NewContextLegacy(false, tmproto.Header{})
+	app := simapp.Setup(false, feemarketGenesis)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	chainStartTime := ctx.BlockTime()
 	chainStartHeight := ctx.BlockHeight()
@@ -52,9 +50,8 @@ func TestEpochsInitGenesis(t *testing.T) {
 	feemarketGenesis.Params.EnableHeight = 1
 	feemarketGenesis.Params.NoBaseFee = false
 
-	chainID := utils.TestnetChainID + "-1"
-	app := simapp.Setup(false, feemarketGenesis, chainID)
-	ctx := app.BaseApp.NewContextLegacy(false, tmproto.Header{})
+	app := simapp.Setup(false, feemarketGenesis)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	// On init genesis, default epochs information is set
 	// To check init genesis again, should make it fresh status

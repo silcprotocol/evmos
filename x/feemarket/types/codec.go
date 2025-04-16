@@ -1,5 +1,3 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
 package types
 
 import (
@@ -15,9 +13,8 @@ var (
 	// ONLY be used in certain instances of tests and for JSON encoding.
 	ModuleCdc = codec.NewProtoCodec(codectypes.NewInterfaceRegistry())
 
-	// For now we'll leave this. PENDING to check if we can remove it
 	// AminoCdc is a amino codec created to support amino JSON compatible msgs.
-	AminoCdc = codec.NewAminoCodec(amino) //nolint:staticcheck
+	AminoCdc = codec.NewAminoCodec(amino)
 )
 
 const (

@@ -1,22 +1,12 @@
 package keeper_test
 
 import (
-	"testing"
-
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
-	"github.com/evmos/evmos/v20/x/feemarket/types"
-	"github.com/stretchr/testify/require"
+	"github.com/evmos/evmos/v12/x/feemarket/types"
 )
 
-func TestUpdateParams(t *testing.T) {
-	var (
-		nw  *network.UnitTestNetwork
-		ctx sdk.Context
-	)
-
+func (suite *KeeperTestSuite) TestUpdateParams() {
 	testCases := []struct {
 		name      string
 		request   *types.MsgUpdateParams
@@ -38,16 +28,12 @@ func TestUpdateParams(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// reset network and context
-			nw = network.NewUnitTestNetwork()
-			ctx = nw.GetContext()
-
-			_, err := nw.App.FeeMarketKeeper.UpdateParams(ctx, tc.request)
+		suite.Run("MsgUpdateParams", func() {
+			_, err := suite.app.FeeMarketKeeper.UpdateParams(suite.ctx, tc.request)
 			if tc.expectErr {
-				require.Error(t, err)
+				suite.Require().Error(err)
 			} else {
-				require.NoError(t, err)
+				suite.Require().NoError(err)
 			}
 		})
 	}

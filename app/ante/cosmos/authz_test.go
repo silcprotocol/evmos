@@ -2,13 +2,11 @@ package cosmos_test
 
 import (
 	"fmt"
-	"math/big"
 	"testing"
 	"time"
 
-	"cosmossdk.io/math"
-	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/stretchr/testify/require"
+	abci "github.com/tendermint/tendermint/abci/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -17,19 +15,13 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	cosmosante "github.com/evmos/evmos/v20/app/ante/cosmos"
-	"github.com/evmos/evmos/v20/testutil"
-	"github.com/evmos/evmos/v20/testutil/integration/common/factory"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
-
-	utiltx "github.com/evmos/evmos/v20/testutil/tx"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	cosmosante "github.com/evmos/evmos/v12/app/ante/cosmos"
+	testutil "github.com/evmos/evmos/v12/testutil"
+	utiltx "github.com/evmos/evmos/v12/testutil/tx"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 func TestAuthzLimiterDecorator(t *testing.T) {
-	nw := network.New()
-	txCfg := nw.GetEncodingConfig().TxConfig
 	testPrivKeys, testAddresses, err := generatePrivKeyAddressPairs(5)
 	require.NoError(t, err)
 
@@ -47,8 +39,6 @@ func TestAuthzLimiterDecorator(t *testing.T) {
 		sdk.MsgTypeURL(&stakingtypes.MsgUndelegate{}),
 	)
 
-	baseDenom := evmtypes.GetEVMCoinDenom()
-
 	testCases := []struct {
 		name        string
 		msgs        []sdk.Msg
@@ -61,7 +51,7 @@ func TestAuthzLimiterDecorator(t *testing.T) {
 				banktypes.NewMsgSend(
 					testAddresses[0],
 					testAddresses[1],
-					sdk.NewCoins(sdk.NewInt64Coin(baseDenom, 100e6)),
+					sdk.NewCoins(sdk.NewInt64Coin(evmtypes.DefaultEVMDenom, 100e6)),
 				),
 			},
 			false,
@@ -143,7 +133,7 @@ func TestAuthzLimiterDecorator(t *testing.T) {
 					[]sdk.Msg{banktypes.NewMsgSend(
 						testAddresses[0],
 						testAddresses[3],
-						sdk.NewCoins(sdk.NewInt64Coin(baseDenom, 100e6)),
+						sdk.NewCoins(sdk.NewInt64Coin(evmtypes.DefaultEVMDenom, 100e6)),
 					)}),
 			},
 			false,
@@ -177,7 +167,7 @@ func TestAuthzLimiterDecorator(t *testing.T) {
 						banktypes.NewMsgSend(
 							testAddresses[0],
 							testAddresses[3],
-							sdk.NewCoins(sdk.NewInt64Coin(baseDenom, 100e6)),
+							sdk.NewCoins(sdk.NewInt64Coin(evmtypes.DefaultEVMDenom, 100e6)),
 						),
 						&evmtypes.MsgEthereumTx{},
 					},
@@ -228,7 +218,7 @@ func TestAuthzLimiterDecorator(t *testing.T) {
 						banktypes.NewMsgSend(
 							testAddresses[0],
 							testAddresses[3],
-							sdk.NewCoins(sdk.NewInt64Coin(baseDenom, 100e6)),
+							sdk.NewCoins(sdk.NewInt64Coin(evmtypes.DefaultEVMDenom, 100e6)),
 						),
 					},
 				),
@@ -246,7 +236,7 @@ func TestAuthzLimiterDecorator(t *testing.T) {
 						banktypes.NewMsgSend(
 							testAddresses[0],
 							testAddresses[3],
-							sdk.NewCoins(sdk.NewInt64Coin(baseDenom, 100e6)),
+							sdk.NewCoins(sdk.NewInt64Coin(evmtypes.DefaultEVMDenom, 100e6)),
 						),
 					},
 				),
@@ -257,7 +247,7 @@ func TestAuthzLimiterDecorator(t *testing.T) {
 						banktypes.NewMsgSend(
 							testAddresses[0],
 							testAddresses[3],
-							sdk.NewCoins(sdk.NewInt64Coin(baseDenom, 100e6)),
+							sdk.NewCoins(sdk.NewInt64Coin(evmtypes.DefaultEVMDenom, 100e6)),
 						),
 					},
 				),
@@ -270,7 +260,7 @@ func TestAuthzLimiterDecorator(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("Case %s", tc.name), func(t *testing.T) {
 			ctx := sdk.Context{}.WithIsCheckTx(tc.checkTx)
-			tx, err := createTx(ctx, txCfg, testPrivKeys[0], tc.msgs...)
+			tx, err := createTx(testPrivKeys[0], tc.msgs...)
 			require.NoError(t, err)
 
 			_, err = decorator.AnteHandle(ctx, tx, false, testutil.NextFn)
@@ -288,25 +278,7 @@ func (suite *AnteTestSuite) TestRejectMsgsInAuthz() {
 	_, testAddresses, err := generatePrivKeyAddressPairs(10)
 	suite.Require().NoError(err)
 
-	var gasLimit uint64 = 1000000
 	distantFuture := time.Date(9000, 1, 1, 0, 0, 0, 0, time.UTC)
-
-	nw := suite.GetNetwork()
-
-	res, err := suite.GetNetwork().GetEvmClient().BaseFee(suite.GetNetwork().GetContext(), &evmtypes.QueryBaseFeeRequest{})
-	suite.Require().NoError(err)
-
-	// create a dummy MsgEthereumTx for the test
-	// otherwise throws error that cannot unpack tx data
-	msgEthereumTx := evmtypes.NewTx(&evmtypes.EvmTxArgs{
-		ChainID:   nw.GetEIP155ChainID(),
-		Nonce:     0,
-		GasLimit:  gasLimit,
-		GasFeeCap: res.BaseFee.BigInt(),
-		GasTipCap: big.NewInt(1),
-		Input:     nil,
-		Accesses:  &ethtypes.AccessList{},
-	})
 
 	newMsgGrant := func(msgTypeUrl string) *authz.MsgGrant {
 		msg, err := authz.NewMsgGrant(
@@ -320,8 +292,6 @@ func (suite *AnteTestSuite) TestRejectMsgsInAuthz() {
 		}
 		return msg
 	}
-
-	baseDenom := evmtypes.GetEVMCoinDenom()
 
 	testcases := []struct {
 		name         string
@@ -354,9 +324,9 @@ func (suite *AnteTestSuite) TestRejectMsgsInAuthz() {
 						banktypes.NewMsgSend(
 							testAddresses[0],
 							testAddresses[3],
-							sdk.NewCoins(sdk.NewInt64Coin(baseDenom, 100e6)),
+							sdk.NewCoins(sdk.NewInt64Coin(evmtypes.DefaultEVMDenom, 100e6)),
 						),
-						msgEthereumTx,
+						&evmtypes.MsgEthereumTx{},
 					},
 				),
 			},
@@ -369,7 +339,7 @@ func (suite *AnteTestSuite) TestRejectMsgsInAuthz() {
 					testAddresses[1],
 					2,
 					[]sdk.Msg{
-						msgEthereumTx,
+						&evmtypes.MsgEthereumTx{},
 					},
 				),
 			},
@@ -385,7 +355,7 @@ func (suite *AnteTestSuite) TestRejectMsgsInAuthz() {
 						banktypes.NewMsgSend(
 							testAddresses[0],
 							testAddresses[3],
-							sdk.NewCoins(sdk.NewInt64Coin(baseDenom, 100e6)),
+							sdk.NewCoins(sdk.NewInt64Coin(evmtypes.DefaultEVMDenom, 100e6)),
 						),
 					},
 				),
@@ -402,7 +372,7 @@ func (suite *AnteTestSuite) TestRejectMsgsInAuthz() {
 						banktypes.NewMsgSend(
 							testAddresses[0],
 							testAddresses[3],
-							sdk.NewCoins(sdk.NewInt64Coin(baseDenom, 100e6)),
+							sdk.NewCoins(sdk.NewInt64Coin(evmtypes.DefaultEVMDenom, 100e6)),
 						),
 					},
 				),
@@ -413,7 +383,7 @@ func (suite *AnteTestSuite) TestRejectMsgsInAuthz() {
 						banktypes.NewMsgSend(
 							testAddresses[0],
 							testAddresses[3],
-							sdk.NewCoins(sdk.NewInt64Coin(baseDenom, 100e6)),
+							sdk.NewCoins(sdk.NewInt64Coin(evmtypes.DefaultEVMDenom, 100e6)),
 						),
 					},
 				),
@@ -425,73 +395,55 @@ func (suite *AnteTestSuite) TestRejectMsgsInAuthz() {
 	for _, tc := range testcases {
 		suite.Run(fmt.Sprintf("Case %s", tc.name), func() {
 			suite.SetupTest()
-			nw = suite.GetNetwork()
 			var (
 				tx  sdk.Tx
 				err error
 			)
-			ctx := nw.GetContext()
-			priv := suite.GetKeyring().GetPrivKey(0)
 
 			if tc.isEIP712 {
-				coinAmount := sdk.NewCoin(baseDenom, math.NewInt(20))
+				coinAmount := sdk.NewCoin(evmtypes.DefaultEVMDenom, sdk.NewInt(20))
 				fees := sdk.NewCoins(coinAmount)
 				cosmosTxArgs := utiltx.CosmosTxArgs{
-					TxCfg:   suite.GetClientCtx().TxConfig,
-					Priv:    priv,
-					ChainID: ctx.ChainID(),
+					TxCfg:   suite.clientCtx.TxConfig,
+					Priv:    suite.priv,
+					ChainID: suite.ctx.ChainID(),
 					Gas:     200000,
 					Fees:    fees,
 					Msgs:    tc.msgs,
 				}
 
 				tx, err = utiltx.CreateEIP712CosmosTx(
-					ctx,
-					nw.App,
+					suite.ctx,
+					suite.app,
 					utiltx.EIP712TxArgs{
 						CosmosTxArgs:       cosmosTxArgs,
+						UseLegacyExtension: true,
 						UseLegacyTypedData: true,
 					},
 				)
 			} else {
-				tx, err = suite.GetTxFactory().BuildCosmosTx(
-					priv,
-					factory.CosmosTxArgs{
-						Gas:  &gasLimit,
-						Msgs: tc.msgs,
-					},
-				)
+				tx, err = createTx(suite.priv, tc.msgs...)
 			}
 			suite.Require().NoError(err)
 
-			txEncoder := suite.GetClientCtx().TxConfig.TxEncoder()
+			txEncoder := suite.clientCtx.TxConfig.TxEncoder()
 			bz, err := txEncoder(tx)
 			suite.Require().NoError(err)
 
-			resCheckTx, err := nw.App.CheckTx(
-				&abci.RequestCheckTx{
+			resCheckTx := suite.app.CheckTx(
+				abci.RequestCheckTx{
 					Tx:   bz,
 					Type: abci.CheckTxType_New,
 				},
 			)
-			suite.Require().NoError(err)
 			suite.Require().Equal(resCheckTx.Code, tc.expectedCode, resCheckTx.Log)
 
-			header := ctx.BlockHeader()
-			blockRes, err := nw.App.FinalizeBlock(
-				&abci.RequestFinalizeBlock{
-					Height:             ctx.BlockHeight() + 1,
-					Txs:                [][]byte{bz},
-					Hash:               header.AppHash,
-					NextValidatorsHash: header.NextValidatorsHash,
-					ProposerAddress:    header.ProposerAddress,
-					Time:               header.Time.Add(time.Second),
+			resDeliverTx := suite.app.DeliverTx(
+				abci.RequestDeliverTx{
+					Tx: bz,
 				},
 			)
-			suite.Require().NoError(err)
-			suite.Require().Len(blockRes.TxResults, 1)
-			txRes := blockRes.TxResults[0]
-			suite.Require().Equal(txRes.Code, tc.expectedCode, txRes.Log)
+			suite.Require().Equal(resDeliverTx.Code, tc.expectedCode, resDeliverTx.Log)
 		})
 	}
 }

@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package cosmos
 
 import (
@@ -30,7 +43,7 @@ func NewAuthzLimiterDecorator(disabledMsgTypes ...string) AuthzLimiterDecorator 
 
 func (ald AuthzLimiterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	if err := ald.checkDisabledMsgs(tx.GetMsgs(), false, 1); err != nil {
-		return ctx, errorsmod.Wrapf(errortypes.ErrUnauthorized, "%s", err.Error())
+		return ctx, errorsmod.Wrapf(errortypes.ErrUnauthorized, err.Error())
 	}
 	return next(ctx, tx, simulate)
 }
@@ -38,7 +51,7 @@ func (ald AuthzLimiterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 // checkDisabledMsgs iterates through the msgs and returns an error if it finds any unauthorized msgs.
 //
 // When searchOnlyInAuthzMsgs is enabled, only authz MsgGrant and MsgExec are blocked, if they contain unauthorized msg types.
-// Otherwise, any msg matching the disabled types are blocked, regardless of being in an authz msg or not.
+// Otherwise any msg matching the disabled types are blocked, regardless of being in an authz msg or not.
 //
 // This method is recursive as MsgExec's can wrap other MsgExecs. The check for nested messages is performed up to the
 // maxNestedMsgs threshold. If there are more than that limit, it returns an error

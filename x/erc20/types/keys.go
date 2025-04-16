@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package types
 
@@ -20,19 +33,18 @@ const (
 	RouterKey = ModuleName
 )
 
-// ModuleAddress is the native module address for ERC-20
+// ModuleAddress is the native module address for EVM
 var ModuleAddress common.Address
 
 func init() {
 	ModuleAddress = common.BytesToAddress(authtypes.NewModuleAddress(ModuleName).Bytes())
 }
 
-// prefix bytes for the ERC-20 persistent store
+// prefix bytes for the EVM persistent store
 const (
 	prefixTokenPair = iota + 1
 	prefixTokenPairByERC20
 	prefixTokenPairByDenom
-	prefixSTRv2Addresses
 )
 
 // KVStore key prefixes
@@ -40,5 +52,4 @@ var (
 	KeyPrefixTokenPair        = []byte{prefixTokenPair}
 	KeyPrefixTokenPairByERC20 = []byte{prefixTokenPairByERC20}
 	KeyPrefixTokenPairByDenom = []byte{prefixTokenPairByDenom}
-	KeyPrefixSTRv2Addresses   = []byte{prefixSTRv2Addresses}
 )

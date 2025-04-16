@@ -1,20 +1,75 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:LGPL-3.0-only
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package keeper
 
 import (
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	errortypes "github.com/cosmos/cosmos-sdk/types/errors"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/evmos/evmos/v20/x/erc20/types"
+	"github.com/evmos/evmos/v12/x/erc20/types"
 )
+
+// RegisterCoin deploys an erc20 contract and creates the token pair for the
+// existing cosmos coin
+func (k Keeper) RegisterCoin(
+	ctx sdk.Context,
+	coinMetadata banktypes.Metadata,
+) (*types.TokenPair, error) {
+	// Check if denomination is already registered
+	if k.IsDenomRegistered(ctx, coinMetadata.Name) {
+		return nil, errorsmod.Wrapf(
+			types.ErrTokenPairAlreadyExists, "coin denomination already registered: %s", coinMetadata.Name,
+		)
+	}
+
+	// Check if the coin exists by ensuring the supply is set
+	if !k.bankKeeper.HasSupply(ctx, coinMetadata.Base) {
+		return nil, errorsmod.Wrapf(
+			errortypes.ErrInvalidCoins, "base denomination '%s' cannot have a supply of 0", coinMetadata.Base,
+		)
+	}
+
+	if err := k.verifyMetadata(ctx, coinMetadata); err != nil {
+		return nil, errorsmod.Wrapf(
+			types.ErrInternalTokenPair, "coin metadata is invalid %s", coinMetadata.Name,
+		)
+	}
+
+	addr, err := k.DeployERC20Contract(ctx, coinMetadata)
+	if err != nil {
+		return nil, errorsmod.Wrap(
+			err, "failed to create wrapped coin denom metadata for ERC20",
+		)
+	}
+
+	pair := types.NewTokenPair(addr, coinMetadata.Base, true, types.OWNER_MODULE)
+	k.SetTokenPair(ctx, pair)
+	k.SetDenomMap(ctx, pair.Denom, pair.GetID())
+	k.SetERC20Map(ctx, common.HexToAddress(pair.Erc20Address), pair.GetID())
+
+	return &pair, nil
+}
 
 // RegisterERC20 creates a Cosmos coin and registers the token pair between the
 // coin and the ERC20
-func (k Keeper) registerERC20(
+func (k Keeper) RegisterERC20(
 	ctx sdk.Context,
 	contract common.Address,
 ) (*types.TokenPair, error) {
@@ -32,8 +87,10 @@ func (k Keeper) registerERC20(
 		)
 	}
 
-	pair := types.NewTokenPair(contract, metadata.Name, types.OWNER_EXTERNAL)
-	k.SetToken(ctx, pair)
+	pair := types.NewTokenPair(contract, metadata.Name, true, types.OWNER_EXTERNAL)
+	k.SetTokenPair(ctx, pair)
+	k.SetDenomMap(ctx, pair.Denom, pair.GetID())
+	k.SetERC20Map(ctx, common.HexToAddress(pair.Erc20Address), pair.GetID())
 	return &pair, nil
 }
 
@@ -92,7 +149,7 @@ func (k Keeper) CreateCoinMetadata(
 			metadata.DenomUnits,
 			&banktypes.DenomUnit{
 				Denom:    nameSanitized,
-				Exponent: uint32(erc20Data.Decimals), //#nosec G115
+				Exponent: uint32(erc20Data.Decimals),
 			},
 		)
 		metadata.Display = nameSanitized
@@ -109,8 +166,8 @@ func (k Keeper) CreateCoinMetadata(
 	return &metadata, nil
 }
 
-// toggleConversion toggles conversion for a given token pair
-func (k Keeper) toggleConversion(
+// ToggleConversion toggles conversion for a given token pair
+func (k Keeper) ToggleConversion(
 	ctx sdk.Context,
 	token string,
 ) (types.TokenPair, error) {
@@ -129,6 +186,23 @@ func (k Keeper) toggleConversion(
 	}
 
 	pair.Enabled = !pair.Enabled
+
 	k.SetTokenPair(ctx, pair)
 	return pair, nil
+}
+
+// verifyMetadata verifies if the metadata matches the existing one, if not it
+// sets it to the store
+func (k Keeper) verifyMetadata(
+	ctx sdk.Context,
+	coinMetadata banktypes.Metadata,
+) error {
+	meta, found := k.bankKeeper.GetDenomMetaData(ctx, coinMetadata.Base)
+	if !found {
+		k.bankKeeper.SetDenomMetaData(ctx, coinMetadata)
+		return nil
+	}
+
+	// If it already existed, check that is equal to what is stored
+	return types.EqualMetadata(meta, coinMetadata)
 }

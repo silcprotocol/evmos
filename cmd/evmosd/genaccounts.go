@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package main
 
@@ -9,6 +22,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -22,10 +36,13 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 
-	evmoskr "github.com/evmos/evmos/v20/crypto/keyring"
+	"github.com/evmos/evmos/v12/types"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 
-	vestingcli "github.com/evmos/evmos/v20/x/vesting/client/cli"
-	vestingtypes "github.com/evmos/evmos/v20/x/vesting/types"
+	evmoskr "github.com/evmos/evmos/v12/crypto/keyring"
+
+	vestingcli "github.com/evmos/evmos/v12/x/vesting/client/cli"
+	vestingtypes "github.com/evmos/evmos/v12/x/vesting/types"
 )
 
 const (
@@ -103,7 +120,7 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 
 			clawback, _ := cmd.Flags().GetBool(vestingcli.FlagClawback)
 
-			// Create ClawbackvestingAccount or standard Evmos account
+			// Create ClawbackvestingAccount, sdk.VestingAccount or EthAccount
 			switch {
 			case clawback:
 				// ClawbackvestingAccount requires clawback, lockup, vesting, and funder
@@ -178,14 +195,14 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 
 				// The vesting and lockup schedules must describe the same total amount.
 				// IsEqual can panic, so use (a == b) <=> (a <= b && b <= a).
-				if !vestingtypes.CoinEq(lockupCoins, vestingCoins) {
+				if !(vestingCoins.IsAllLTE(lockupCoins) && lockupCoins.IsAllLTE(vestingCoins)) {
 					return fmt.Errorf("lockup (%s) and vesting (%s) amounts must be equal",
 						lockupCoins, vestingCoins,
 					)
 				}
 
 				// Check if account balance is aligned with vesting schedule
-				if !vestingCoins.Equal(coins) {
+				if !vestingCoins.IsEqual(coins) {
 					return fmt.Errorf("vestingCoins (%s) and coin balance (%s) amounts must be equal",
 						vestingCoins, coins,
 					)
@@ -201,7 +218,10 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 				)
 
 			default:
-				genAccount = baseAccount
+				genAccount = &types.EthAccount{
+					BaseAccount: baseAccount,
+					CodeHash:    common.BytesToHash(evmtypes.EmptyCodeHash).Hex(),
+				}
 			}
 
 			if err := genAccount.Validate(); err != nil {

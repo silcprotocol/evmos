@@ -1,25 +1,37 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package keeper
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
 
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 
-	cmttypes "github.com/cometbft/cometbft/types"
+	tmbytes "github.com/tendermint/tendermint/libs/bytes"
+	tmtypes "github.com/tendermint/tendermint/types"
 
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/math"
+	"github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/hashicorp/go-metrics"
 
-	"github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/x/evm/types"
 )
 
 var _ types.MsgServer = &Keeper{}
@@ -65,8 +77,8 @@ func (k *Keeper) EthereumTx(goCtx context.Context, msg *types.MsgEthereumTx) (*t
 
 			// Observe which users define a gas limit >> gas used. Note, that
 			// gas_limit and gas_used are always > 0
-			gasLimit := math.LegacyNewDec(int64(tx.Gas()))                        //#nosec G115
-			gasRatio, err := gasLimit.QuoInt64(int64(response.GasUsed)).Float64() //#nosec G115
+			gasLimit := sdk.NewDec(int64(tx.Gas()))
+			gasRatio, err := gasLimit.QuoInt64(int64(response.GasUsed)).Float64()
 			if err == nil {
 				telemetry.SetGaugeWithLabels(
 					[]string{"tx", "msg", "ethereum_tx", "gas_limit", "per", "gas_used"},
@@ -89,8 +101,8 @@ func (k *Keeper) EthereumTx(goCtx context.Context, msg *types.MsgEthereumTx) (*t
 
 	if len(ctx.TxBytes()) > 0 {
 		// add event for tendermint transaction hash format
-		hash := cmttypes.Tx(ctx.TxBytes()).Hash()
-		attrs = append(attrs, sdk.NewAttribute(types.AttributeKeyTxHash, hex.EncodeToString(hash)))
+		hash := tmbytes.HexBytes(tmtypes.Tx(ctx.TxBytes()).Hash())
+		attrs = append(attrs, sdk.NewAttribute(types.AttributeKeyTxHash, hash.String()))
 	}
 
 	if to := tx.To(); to != nil {

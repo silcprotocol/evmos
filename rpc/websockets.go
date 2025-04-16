@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package rpc
 
 import (
@@ -11,7 +24,6 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"strconv"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -25,15 +37,15 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 
-	"cosmossdk.io/log"
-	rpcclient "github.com/cometbft/cometbft/rpc/jsonrpc/client"
-	cmttypes "github.com/cometbft/cometbft/types"
+	"github.com/tendermint/tendermint/libs/log"
+	rpcclient "github.com/tendermint/tendermint/rpc/jsonrpc/client"
+	tmtypes "github.com/tendermint/tendermint/types"
 
-	"github.com/evmos/evmos/v20/rpc/ethereum/pubsub"
-	rpcfilters "github.com/evmos/evmos/v20/rpc/namespaces/ethereum/eth/filters"
-	"github.com/evmos/evmos/v20/rpc/types"
-	"github.com/evmos/evmos/v20/server/config"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/rpc/ethereum/pubsub"
+	rpcfilters "github.com/evmos/evmos/v12/rpc/namespaces/ethereum/eth/filters"
+	"github.com/evmos/evmos/v12/rpc/types"
+	"github.com/evmos/evmos/v12/server/config"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 type WebsocketsServer interface {
@@ -97,11 +109,10 @@ func (s *websocketsServer) Start() {
 
 	go func() {
 		var err error
+		/* #nosec G114 -- http functions have no support for timeouts */
 		if s.certFile == "" || s.keyFile == "" {
-			//#nosec G114 -- http functions have no support for timeouts
 			err = http.ListenAndServe(s.wsAddr, ws)
 		} else {
-			//#nosec G114 -- http functions have no support for timeouts
 			err = http.ListenAndServeTLS(s.wsAddr, s.certFile, s.keyFile, ws)
 		}
 
@@ -117,7 +128,7 @@ func (s *websocketsServer) Start() {
 
 func (s *websocketsServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	upgrader := websocket.Upgrader{
-		CheckOrigin: func(_ *http.Request) bool {
+		CheckOrigin: func(r *http.Request) bool {
 			return true
 		},
 	}
@@ -215,16 +226,8 @@ func (s *websocketsServer) readLoop(wsConn *wsConn) {
 			continue
 		}
 
-		var connID float64
-		switch id := msg["id"].(type) {
-		case string:
-			connID, err = strconv.ParseFloat(id, 64)
-		case float64:
-			connID = id
-		default:
-			err = fmt.Errorf("unknown type")
-		}
-		if err != nil {
+		connID, ok := msg["id"].(float64)
+		if !ok {
 			s.sendErrResponse(
 				wsConn,
 				fmt.Errorf("invalid type for connection ID: %T", msg["id"]).Error(),
@@ -400,7 +403,7 @@ func (api *pubSubAPI) subscribeNewHeads(wsConn *wsConn, subID rpc.ID) (pubsub.Un
 					return
 				}
 
-				data, ok := event.Data.(cmttypes.EventDataNewBlockHeader)
+				data, ok := event.Data.(tmtypes.EventDataNewBlockHeader)
 				if !ok {
 					api.logger.Debug("event data type mismatch", "type", fmt.Sprintf("%T", event.Data))
 					continue
@@ -573,7 +576,7 @@ func (api *pubSubAPI) subscribeLogs(wsConn *wsConn, subID rpc.ID, extra interfac
 					return
 				}
 
-				dataTx, ok := event.Data.(cmttypes.EventDataTx)
+				dataTx, ok := event.Data.(tmtypes.EventDataTx)
 				if !ok {
 					api.logger.Debug("event data type mismatch", "type", fmt.Sprintf("%T", event.Data))
 					continue
@@ -633,7 +636,7 @@ func (api *pubSubAPI) subscribePendingTransactions(wsConn *wsConn, subID rpc.ID)
 		for {
 			select {
 			case ev := <-txsCh:
-				data, ok := ev.Data.(cmttypes.EventDataTx)
+				data, ok := ev.Data.(tmtypes.EventDataTx)
 				if !ok {
 					api.logger.Debug("event data type mismatch", "type", fmt.Sprintf("%T", ev.Data))
 					continue
@@ -679,7 +682,7 @@ func (api *pubSubAPI) subscribePendingTransactions(wsConn *wsConn, subID rpc.ID)
 	return unsubFn, nil
 }
 
-func (api *pubSubAPI) subscribeSyncing(_ *wsConn, _ rpc.ID) (pubsub.UnsubscribeFunc, error) {
+func (api *pubSubAPI) subscribeSyncing(wsConn *wsConn, subID rpc.ID) (pubsub.UnsubscribeFunc, error) {
 	return nil, errors.New("syncing subscription is not implemented")
 }
 

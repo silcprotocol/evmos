@@ -1,20 +1,30 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package keeper
 
 import (
 	"fmt"
 
-	"cosmossdk.io/log"
-	storetypes "cosmossdk.io/store/types"
 	"github.com/cosmos/cosmos-sdk/codec"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-	transferkeeper "github.com/evmos/evmos/v20/x/ibc/transfer/keeper"
+	"github.com/tendermint/tendermint/libs/log"
 
-	"github.com/evmos/evmos/v20/x/erc20/types"
+	"github.com/evmos/evmos/v12/x/erc20/types"
 )
 
 // Keeper of this module maintains collections of erc20.
@@ -24,12 +34,11 @@ type Keeper struct {
 	// the address capable of executing a MsgUpdateParams message. Typically, this should be the x/gov module account.
 	authority sdk.AccAddress
 
-	accountKeeper  types.AccountKeeper
-	bankKeeper     bankkeeper.Keeper
-	evmKeeper      types.EVMKeeper
-	stakingKeeper  types.StakingKeeper
-	authzKeeper    authzkeeper.Keeper
-	transferKeeper *transferkeeper.Keeper
+	accountKeeper types.AccountKeeper
+	bankKeeper    types.BankKeeper
+	evmKeeper     types.EVMKeeper
+	stakingKeeper types.StakingKeeper
+	claimsKeeper  types.ClaimsKeeper
 }
 
 // NewKeeper creates new instances of the erc20 Keeper
@@ -38,11 +47,10 @@ func NewKeeper(
 	cdc codec.BinaryCodec,
 	authority sdk.AccAddress,
 	ak types.AccountKeeper,
-	bk bankkeeper.Keeper,
+	bk types.BankKeeper,
 	evmKeeper types.EVMKeeper,
 	sk types.StakingKeeper,
-	authzKeeper authzkeeper.Keeper,
-	transferKeeper *transferkeeper.Keeper,
+	ck types.ClaimsKeeper,
 ) Keeper {
 	// ensure gov module account is set and is not nil
 	if err := sdk.VerifyAddressFormat(authority); err != nil {
@@ -50,15 +58,14 @@ func NewKeeper(
 	}
 
 	return Keeper{
-		authority:      authority,
-		storeKey:       storeKey,
-		cdc:            cdc,
-		accountKeeper:  ak,
-		bankKeeper:     bk,
-		evmKeeper:      evmKeeper,
-		stakingKeeper:  sk,
-		authzKeeper:    authzKeeper,
-		transferKeeper: transferKeeper,
+		authority:     authority,
+		storeKey:      storeKey,
+		cdc:           cdc,
+		accountKeeper: ak,
+		bankKeeper:    bk,
+		evmKeeper:     evmKeeper,
+		stakingKeeper: sk,
+		claimsKeeper:  ck,
 	}
 }
 

@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package backend
 
 import (
@@ -10,14 +23,13 @@ import (
 	errorsmod "cosmossdk.io/errors"
 
 	sdkmath "cosmossdk.io/math"
-	"github.com/cometbft/cometbft/libs/bytes"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	rpctypes "github.com/evmos/evmos/v20/rpc/types"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	rpctypes "github.com/evmos/evmos/v12/rpc/types"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 	"github.com/pkg/errors"
 )
 
@@ -67,7 +79,7 @@ func (b *Backend) GetProof(address common.Address, storageKeys []string, blockNr
 			return nil, fmt.Errorf("not able to query block number greater than MaxInt64")
 		}
 
-		height = int64(bn) //#nosec G701 G115 -- checked for int overflow already
+		height = int64(bn) //#nosec G701 -- checked for int overflow already
 	}
 
 	clientCtx := b.clientCtx.WithHeight(height)
@@ -100,7 +112,7 @@ func (b *Backend) GetProof(address common.Address, storageKeys []string, blockNr
 	}
 
 	// query account proofs
-	accountKey := bytes.HexBytes(append(authtypes.AddressStoreKeyPrefix, address.Bytes()...))
+	accountKey := authtypes.AddressStoreKey(sdk.AccAddress(address.Bytes()))
 	_, proof, err := b.queryClient.GetProof(clientCtx, authtypes.StoreKey, accountKey)
 	if err != nil {
 		return nil, err
@@ -186,7 +198,7 @@ func (b *Backend) GetTransactionCount(address common.Address, blockNum rpctypes.
 	}
 	height := blockNum.Int64()
 
-	currentHeight := int64(bn) //#nosec G701 G115 -- checked for int overflow already
+	currentHeight := int64(bn) //#nosec G701 -- checked for int overflow already
 	if height > currentHeight {
 		return &n, errorsmod.Wrapf(
 			sdkerrors.ErrInvalidHeight,

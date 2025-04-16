@@ -1,33 +1,40 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package network
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-
-	"golang.org/x/sync/errgroup"
-
-	"cosmossdk.io/log"
-	cmtcfg "github.com/cometbft/cometbft/config"
-	tmos "github.com/cometbft/cometbft/libs/os"
-	"github.com/cometbft/cometbft/node"
-	"github.com/cometbft/cometbft/p2p"
-	pvm "github.com/cometbft/cometbft/privval"
-	"github.com/cometbft/cometbft/proxy"
-	"github.com/cometbft/cometbft/rpc/client/local"
-	"github.com/cometbft/cometbft/types"
-	cmttime "github.com/cometbft/cometbft/types/time"
+	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
+	tmos "github.com/tendermint/tendermint/libs/os"
+	"github.com/tendermint/tendermint/node"
+	"github.com/tendermint/tendermint/p2p"
+	pvm "github.com/tendermint/tendermint/privval"
+	"github.com/tendermint/tendermint/proxy"
+	"github.com/tendermint/tendermint/rpc/client/local"
+	"github.com/tendermint/tendermint/types"
+	tmtime "github.com/tendermint/tendermint/types/time"
 
-	sdkserver "github.com/cosmos/cosmos-sdk/server"
 	"github.com/cosmos/cosmos-sdk/server/api"
 	servergrpc "github.com/cosmos/cosmos-sdk/server/grpc"
-	servercmtlog "github.com/cosmos/cosmos-sdk/server/log"
+	srvtypes "github.com/cosmos/cosmos-sdk/server/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	crisistypes "github.com/cosmos/cosmos-sdk/x/crisis/types"
@@ -36,40 +43,38 @@ import (
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	govv1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	inflationtypes "github.com/evmos/evmos/v20/x/inflation/v1/types"
+	inflationtypes "github.com/evmos/evmos/v12/x/inflation/types"
 
-	"github.com/evmos/evmos/v20/server"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/server"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 func startInProcess(cfg Config, val *Validator) error {
 	logger := val.Ctx.Logger
-	cmtCfg := val.Ctx.Config
-	cmtCfg.Instrumentation.Prometheus = false
+	tmCfg := val.Ctx.Config
+	tmCfg.Instrumentation.Prometheus = false
 
 	if err := val.AppConfig.ValidateBasic(); err != nil {
 		return err
 	}
 
-	nodeKey, err := p2p.LoadOrGenNodeKey(cmtCfg.NodeKeyFile())
+	nodeKey, err := p2p.LoadOrGenNodeKey(tmCfg.NodeKeyFile())
 	if err != nil {
 		return err
 	}
 
 	app := cfg.AppConstructor(*val)
-	val.app = app
 
-	genDocProvider := server.GenDocProvider(cmtCfg)
-	cmtApp := sdkserver.NewCometABCIWrapper(app)
+	genDocProvider := node.DefaultGenesisDocProviderFunc(tmCfg)
 	tmNode, err := node.NewNode(
-		cmtCfg,
-		pvm.LoadOrGenFilePV(cmtCfg.PrivValidatorKeyFile(), cmtCfg.PrivValidatorStateFile()),
+		tmCfg,
+		pvm.LoadOrGenFilePV(tmCfg.PrivValidatorKeyFile(), tmCfg.PrivValidatorStateFile()),
 		nodeKey,
-		proxy.NewLocalClientCreator(cmtApp),
+		proxy.NewLocalClientCreator(app),
 		genDocProvider,
-		cmtcfg.DefaultDBProvider,
-		node.DefaultMetricsProvider(cmtCfg.Instrumentation),
-		servercmtlog.CometLoggerWrapper{Logger: logger.With("module", val.Moniker)},
+		node.DefaultDBProvider,
+		node.DefaultMetricsProvider(tmCfg.Instrumentation),
+		logger.With("module", val.Moniker),
 	)
 	if err != nil {
 		return err
@@ -95,37 +100,43 @@ func startInProcess(cfg Config, val *Validator) error {
 
 		// Add the tendermint queries service in the gRPC router.
 		app.RegisterTendermintService(val.ClientCtx)
-		app.RegisterNodeService(val.ClientCtx, val.AppConfig.Config)
 	}
 
-	ctx := context.Background()
-	ctx, val.cancelFn = context.WithCancel(ctx)
-	val.errGroup, ctx = errgroup.WithContext(ctx)
-
 	if val.AppConfig.API.Enable && val.APIAddress != "" {
-		apiSrv := api.New(val.ClientCtx, logger.With("module", "api-server"), val.grpc)
+		apiSrv := api.New(val.ClientCtx, logger.With("module", "api-server"))
 		app.RegisterAPIRoutes(apiSrv, val.AppConfig.API)
 
-		val.errGroup.Go(func() error {
-			return apiSrv.Start(ctx, val.AppConfig.Config)
-		})
+		errCh := make(chan error)
+
+		go func() {
+			if err := apiSrv.Start(val.AppConfig.Config); err != nil {
+				errCh <- err
+			}
+		}()
+
+		select {
+		case err := <-errCh:
+			return err
+		case <-time.After(srvtypes.ServerStartTime): // assume server started successfully
+		}
 
 		val.api = apiSrv
 	}
 
 	if val.AppConfig.GRPC.Enable {
-		grpcSrv, err := servergrpc.NewGRPCServer(val.ClientCtx, app, val.AppConfig.GRPC)
+		grpcSrv, err := servergrpc.StartGRPCServer(val.ClientCtx, app, val.AppConfig.GRPC)
 		if err != nil {
 			return err
 		}
 
-		// Start the gRPC server in a goroutine. Note, the provided ctx will ensure
-		// that the server is gracefully shut down.
-		val.errGroup.Go(func() error {
-			return servergrpc.StartGRPCServer(ctx, logger.With(log.ModuleKey, "grpc-server"), val.AppConfig.GRPC, grpcSrv)
-		})
-
 		val.grpc = grpcSrv
+
+		if val.AppConfig.GRPCWeb.Enable {
+			val.grpcWeb, err = servergrpc.StartGRPCWeb(grpcSrv, val.AppConfig.Config)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	if val.AppConfig.JSONRPC.Enable && val.AppConfig.JSONRPC.Address != "" {
@@ -153,27 +164,27 @@ func startInProcess(cfg Config, val *Validator) error {
 }
 
 func collectGenFiles(cfg Config, vals []*Validator, outputDir string) error {
-	genTime := cmttime.Now()
+	genTime := tmtime.Now()
 
 	for i := 0; i < cfg.NumValidators; i++ {
-		cmtCfg := vals[i].Ctx.Config
+		tmCfg := vals[i].Ctx.Config
 
 		nodeDir := filepath.Join(outputDir, vals[i].Moniker, "evmosd")
 		gentxsDir := filepath.Join(outputDir, "gentxs")
 
-		cmtCfg.Moniker = vals[i].Moniker
-		cmtCfg.SetRoot(nodeDir)
+		tmCfg.Moniker = vals[i].Moniker
+		tmCfg.SetRoot(nodeDir)
 
 		initCfg := genutiltypes.NewInitConfig(cfg.ChainID, gentxsDir, vals[i].NodeID, vals[i].PubKey)
 
-		genFile := cmtCfg.GenesisFile()
-		appGenesis, err := genutiltypes.AppGenesisFromFile(genFile)
+		genFile := tmCfg.GenesisFile()
+		genDoc, err := types.GenesisDocFromFile(genFile)
 		if err != nil {
 			return err
 		}
 
 		appState, err := genutil.GenAppStateFromConfig(cfg.Codec, cfg.TxConfig,
-			cmtCfg, initCfg, appGenesis, banktypes.GenesisBalancesIterator{}, genutiltypes.DefaultMessageValidator, cfg.TxConfig.SigningContext().ValidatorAddressCodec())
+			tmCfg, initCfg, *genDoc, banktypes.GenesisBalancesIterator{})
 		if err != nil {
 			return err
 		}
@@ -214,8 +225,7 @@ func initGenFiles(cfg Config, genAccounts []authtypes.GenesisAccount, genBalance
 	var govGenState govv1.GenesisState
 	cfg.Codec.MustUnmarshalJSON(cfg.GenesisState[govtypes.ModuleName], &govGenState)
 
-	govGenState.Params.MinDeposit[0].Denom = cfg.BondDenom
-	govGenState.Params.ExpeditedMinDeposit[0].Denom = cfg.BondDenom
+	govGenState.DepositParams.MinDeposit[0].Denom = cfg.BondDenom
 	cfg.GenesisState[govtypes.ModuleName] = cfg.Codec.MustMarshalJSON(&govGenState)
 
 	var inflationGenState inflationtypes.GenesisState
@@ -232,6 +242,9 @@ func initGenFiles(cfg Config, genAccounts []authtypes.GenesisAccount, genBalance
 
 	var evmGenState evmtypes.GenesisState
 	cfg.Codec.MustUnmarshalJSON(cfg.GenesisState[evmtypes.ModuleName], &evmGenState)
+
+	evmGenState.Params.EvmDenom = cfg.BondDenom
+	cfg.GenesisState[evmtypes.ModuleName] = cfg.Codec.MustMarshalJSON(&evmGenState)
 
 	appGenStateJSON, err := json.MarshalIndent(cfg.GenesisState, "", "  ")
 	if err != nil {

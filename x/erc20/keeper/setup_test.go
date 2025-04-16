@@ -3,71 +3,74 @@ package keeper_test
 import (
 	"testing"
 
-	sdkmath "cosmossdk.io/math"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 
-	"github.com/stretchr/testify/suite"
-
-	"github.com/ethereum/go-ethereum/params"
-
+	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/factory"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/grpc"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/keyring"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
-	"github.com/evmos/evmos/v20/x/erc20/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	ibcgotesting "github.com/cosmos/ibc-go/v6/testing"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/evmos/evmos/v12/app"
+	ibctesting "github.com/evmos/evmos/v12/ibc/testing"
+	"github.com/evmos/evmos/v12/x/erc20/types"
+	evm "github.com/evmos/evmos/v12/x/evm/types"
+	"github.com/stretchr/testify/suite"
 )
 
 type KeeperTestSuite struct {
 	suite.Suite
 
-	network *network.UnitTestNetwork
-	handler grpc.Handler
-	keyring keyring.Keyring
-	factory factory.TxFactory
-
-	queryClient types.QueryClient
-
+	ctx              sdk.Context
+	app              *app.Evmos
+	queryClientEvm   evm.QueryClient
+	queryClient      types.QueryClient
+	address          common.Address
+	consAddress      sdk.ConsAddress
+	clientCtx        client.Context //nolint:unused
+	ethSigner        ethtypes.Signer
+	priv             cryptotypes.PrivKey
+	validator        stakingtypes.Validator
+	signer           keyring.Signer
 	mintFeeCollector bool
+
+	coordinator *ibcgotesting.Coordinator
+
+	// testing chains used for convenience and readability
+	EvmosChain      *ibcgotesting.TestChain
+	IBCOsmosisChain *ibcgotesting.TestChain
+	IBCCosmosChain  *ibcgotesting.TestChain
+
+	pathOsmosisEvmos  *ibctesting.Path
+	pathCosmosEvmos   *ibctesting.Path
+	pathOsmosisCosmos *ibctesting.Path
+
+	suiteIBCTesting bool
 }
 
-func TestKeeperUnitTestSuite(t *testing.T) {
-	suite.Run(t, new(KeeperTestSuite))
+var (
+	s *KeeperTestSuite
+	// sendAndReceiveMsgFee corresponds to the fees paid on Evmos chain when calling the SendAndReceive function
+	// This function makes 3 cosmos txs under the hood
+	sendAndReceiveMsgFee = sdk.NewInt(ibctesting.DefaultFeeAmt * 3)
+	// sendBackCoinsFee corresponds to the fees paid on Evmos chain when calling the SendBackCoins function
+	// or calling the SendAndReceive from another chain to Evmos
+	// This function makes 2 cosmos txs under the hood
+	sendBackCoinsFee = sdk.NewInt(ibctesting.DefaultFeeAmt * 2)
+)
+
+func TestKeeperTestSuite(t *testing.T) {
+	s = new(KeeperTestSuite)
+	suite.Run(t, s)
+
+	// Run Ginkgo integration tests
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Keeper Suite")
 }
 
 func (suite *KeeperTestSuite) SetupTest() {
-	keys := keyring.New(2)
-	// Set custom balance based on test params
-	customGenesis := network.CustomGenesisState{}
-
-	if suite.mintFeeCollector {
-		baseDenom, err := sdk.GetBaseDenom()
-		suite.Require().NoError(err)
-		// mint some coin to fee collector
-		coins := sdk.NewCoins(sdk.NewCoin(baseDenom, sdkmath.NewInt(int64(params.TxGas)-1)))
-		balances := []banktypes.Balance{
-			{
-				Address: authtypes.NewModuleAddress(authtypes.FeeCollectorName).String(),
-				Coins:   coins,
-			},
-		}
-		bankGenesis := banktypes.DefaultGenesisState()
-		bankGenesis.Balances = balances
-		customGenesis[banktypes.ModuleName] = bankGenesis
-	}
-
-	nw := network.NewUnitTestNetwork(
-		network.WithPreFundedAccounts(keys.GetAllAccAddrs()...),
-		network.WithCustomGenesis(customGenesis),
-	)
-	gh := grpc.NewIntegrationHandler(nw)
-	tf := factory.New(nw, gh)
-
-	suite.network = nw
-	suite.factory = tf
-	suite.handler = gh
-	suite.keyring = keys
-	suite.queryClient = nw.GetERC20Client()
+	suite.DoSetupTest(suite.T())
 }

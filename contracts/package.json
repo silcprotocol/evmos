@@ -1,11 +1,15 @@
 {
-  "name": "evmos-contracts",
-  "version": "2.0.0",
-  "description": "A collection of smart contracts used in the development of the Evmos blockchain.",
-  "devDependencies": {
-    "@openzeppelin/contracts": "^4.9.6",
-    "hardhat": "^2.22.2"
+  "name": "evmos",
+  "version": "1.0.0",
+  "description": "<!-- parent:   order: false -->",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
   },
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.7.3"
+  },
+  "devDependencies": {},
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -13,7 +17,7 @@
     "type": "git",
     "url": "git+https://github.com/evmos/evmos.git"
   },
-  "author": "Evmos Core Team",
+  "author": "",
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/evmos/evmos/issues"

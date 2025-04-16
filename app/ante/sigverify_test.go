@@ -5,27 +5,28 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	storetypes "cosmossdk.io/store/types"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	kmultisig "github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256r1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/migrations/legacytx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
-	"github.com/evmos/evmos/v20/app/ante"
-	"github.com/evmos/evmos/v20/crypto/ethsecp256k1"
-	"github.com/evmos/evmos/v20/encoding"
+	"github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/app/ante"
+	"github.com/evmos/evmos/v12/crypto/ethsecp256k1"
+	"github.com/evmos/evmos/v12/encoding"
 )
 
 func TestConsumeSignatureVerificationGas(t *testing.T) {
 	params := authtypes.DefaultParams()
 	msg := []byte{1, 2, 3, 4}
 
-	encodingConfig := encoding.MakeConfig()
+	encodingConfig := encoding.MakeConfig(app.ModuleBasics)
 	cdc := encodingConfig.Amino
 
 	p := authtypes.DefaultParams()
@@ -35,8 +36,7 @@ func TestConsumeSignatureVerificationGas(t *testing.T) {
 	expectedCost1 := expectedGasCostByKeys(pkSet1)
 
 	for i := 0; i < len(pkSet1); i++ {
-		// using nolint:all because the staticcheck nolint is not working as expected
-		stdSig := legacytx.StdSignature{PubKey: pkSet1[i], Signature: sigSet1[i]} //nolint:all
+		stdSig := legacytx.StdSignature{PubKey: pkSet1[i], Signature: sigSet1[i]} //nolint:staticcheck
 		sigV2, err := legacytx.StdSignatureToSignatureV2(cdc, stdSig)
 		require.NoError(t, err)
 		err = multisig.AddSignatureV2(multisignature1, sigV2, pkSet1)
@@ -47,7 +47,7 @@ func TestConsumeSignatureVerificationGas(t *testing.T) {
 	skR1, _ := secp256r1.GenPrivKey()
 
 	type args struct {
-		meter  storetypes.GasMeter
+		meter  sdk.GasMeter
 		sig    signing.SignatureData
 		pubkey cryptotypes.PubKey
 		params authtypes.Params
@@ -60,37 +60,37 @@ func TestConsumeSignatureVerificationGas(t *testing.T) {
 	}{
 		{
 			"PubKeyEd25519",
-			args{storetypes.NewInfiniteGasMeter(), nil, ed25519.GenPrivKey().PubKey(), params},
+			args{sdk.NewInfiniteGasMeter(), nil, ed25519.GenPrivKey().PubKey(), params},
 			p.SigVerifyCostED25519,
 			true,
 		},
 		{
 			"PubKeyEthsecp256k1",
-			args{storetypes.NewInfiniteGasMeter(), nil, ethsecKey.PubKey(), params},
+			args{sdk.NewInfiniteGasMeter(), nil, ethsecKey.PubKey(), params},
 			ante.Secp256k1VerifyCost,
 			false,
 		},
 		{
 			"PubKeySecp256k1",
-			args{storetypes.NewInfiniteGasMeter(), nil, secp256k1.GenPrivKey().PubKey(), params},
+			args{sdk.NewInfiniteGasMeter(), nil, secp256k1.GenPrivKey().PubKey(), params},
 			p.SigVerifyCostSecp256k1,
 			true,
 		},
 		{
 			"PubKeySecp256r1",
-			args{storetypes.NewInfiniteGasMeter(), nil, skR1.PubKey(), params},
+			args{sdk.NewInfiniteGasMeter(), nil, skR1.PubKey(), params},
 			p.SigVerifyCostSecp256r1(),
 			true,
 		},
 		{
 			"Multisig",
-			args{storetypes.NewInfiniteGasMeter(), multisignature1, multisigKey1, params},
+			args{sdk.NewInfiniteGasMeter(), multisignature1, multisigKey1, params},
 			expectedCost1,
 			false,
 		},
 		{
 			"unknown key",
-			args{storetypes.NewInfiniteGasMeter(), nil, nil, params},
+			args{sdk.NewInfiniteGasMeter(), nil, nil, params},
 			0,
 			true,
 		},

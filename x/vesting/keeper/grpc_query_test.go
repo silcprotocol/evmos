@@ -2,113 +2,87 @@ package keeper_test
 
 import (
 	"fmt"
-	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/stretchr/testify/require"
 
-	"github.com/evmos/evmos/v20/testutil"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
-	"github.com/evmos/evmos/v20/x/vesting/types"
+	"github.com/evmos/evmos/v12/testutil"
+	utiltx "github.com/evmos/evmos/v12/testutil/tx"
+	"github.com/evmos/evmos/v12/x/vesting/types"
 )
 
-func TestBalances(t *testing.T) {
+func (suite *KeeperTestSuite) TestBalances() {
 	var (
-		ctx    sdk.Context
-		nw     *network.UnitTestNetwork
 		req    *types.QueryBalancesRequest
 		expRes *types.QueryBalancesResponse
 	)
+	addr := sdk.AccAddress(utiltx.GenerateAddress().Bytes())
 
 	testCases := []struct {
-		name        string
-		malleate    func()
-		expPass     bool
-		errContains string
+		name     string
+		malleate func()
+		expPass  bool
 	}{
 		{
-			name: "nil req",
-			malleate: func() {
-				req = nil
-			},
-			expPass:     false,
-			errContains: "empty address string is not allowed",
-		},
-		{
-			name: "empty req",
-			malleate: func() {
+			"empty req",
+			func() {
 				req = &types.QueryBalancesRequest{}
 			},
-			expPass:     false,
-			errContains: "empty address string is not allowed",
+			false,
 		},
 		{
-			name: "invalid address",
-			malleate: func() {
+			"invalid address",
+			func() {
 				req = &types.QueryBalancesRequest{
 					Address: "evmos1",
 				}
 			},
-			expPass:     false,
-			errContains: "decoding bech32 failed: invalid bech32 string length 6",
+			false,
 		},
 		{
-			name: "invalid account - not found",
-			malleate: func() {
+			"invalid account - not found",
+			func() {
 				req = &types.QueryBalancesRequest{
-					Address: vestingAddr.String(),
+					Address: addr.String(),
 				}
 			},
-			expPass:     false,
-			errContains: "either does not exist or is not a vesting account",
+			false,
 		},
 		{
-			name: "invalid account - not clawback vesting account",
-			malleate: func() {
-				baseAccount := authtypes.NewBaseAccountWithAddress(vestingAddr)
-				acc := nw.App.AccountKeeper.NewAccount(ctx, baseAccount)
-				nw.App.AccountKeeper.SetAccount(ctx, acc)
+			"invalid account - not clawback vesting account",
+			func() {
+				baseAccount := authtypes.NewBaseAccountWithAddress(addr)
+				acc := suite.app.AccountKeeper.NewAccount(suite.ctx, baseAccount)
+				suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
 
 				req = &types.QueryBalancesRequest{
-					Address: vestingAddr.String(),
+					Address: addr.String(),
 				}
 			},
-			expPass:     false,
-			errContains: "either does not exist or is not a vesting account",
+			false,
 		},
 		{
-			name: "valid",
-			malleate: func() {
-				vestingStart := ctx.BlockTime()
-
-				// fund the vesting account with coins to initialize it and
-				// then send all balances to the funding account
-				err := testutil.FundAccount(ctx, nw.App.BankKeeper, vestingAddr, balances)
-				require.NoError(t, err, "error while funding the target account")
-				err = nw.App.BankKeeper.SendCoins(ctx, vestingAddr, funder, balances)
-				require.NoError(t, err, "error while sending coins to the funder account")
+			"valid",
+			func() {
+				vestingStart := s.ctx.BlockTime()
+				funder := sdk.AccAddress(types.ModuleName)
+				err := testutil.FundAccount(suite.ctx, suite.app.BankKeeper, funder, balances)
+				suite.Require().NoError(err)
 
 				msg := types.NewMsgCreateClawbackVestingAccount(
 					funder,
-					vestingAddr,
-					false,
-				)
-				_, err = nw.App.VestingKeeper.CreateClawbackVestingAccount(ctx, msg)
-				require.NoError(t, err, "error while creating the vesting account")
-
-				msgFund := types.NewMsgFundVestingAccount(
-					funder,
-					vestingAddr,
+					addr,
 					vestingStart,
 					lockupPeriods,
 					vestingPeriods,
+					false,
 				)
-				_, err = nw.App.VestingKeeper.FundVestingAccount(ctx, msgFund)
-				require.NoError(t, err, "error while funding the vesting account")
+				ctx := sdk.WrapSDKContext(suite.ctx)
+				_, err = suite.app.VestingKeeper.CreateClawbackVestingAccount(ctx, msg)
+				suite.Require().NoError(err)
 
 				req = &types.QueryBalancesRequest{
-					Address: vestingAddr.String(),
+					Address: addr.String(),
 				}
 				expRes = &types.QueryBalancesResponse{
 					Locked:   balances,
@@ -116,26 +90,23 @@ func TestBalances(t *testing.T) {
 					Vested:   nil,
 				}
 			},
-			expPass: true,
+			true,
 		},
 	}
 
 	for _, tc := range testCases {
-		t.Run(fmt.Sprintf("Case %s", tc.name), func(t *testing.T) {
-			// reset
-			nw = network.NewUnitTestNetwork()
-			ctx = nw.GetContext()
-			qc := nw.GetVestingClient()
-
+		suite.Run(fmt.Sprintf("Case %s", tc.name), func() {
+			suite.SetupTest() // reset
+			ctx := sdk.WrapSDKContext(suite.ctx)
 			tc.malleate()
+			suite.Commit()
 
-			res, err := qc.Balances(ctx, req)
+			res, err := suite.queryClient.Balances(ctx, req)
 			if tc.expPass {
-				require.NoError(t, err)
-				require.Equal(t, expRes, res)
+				suite.Require().NoError(err)
+				suite.Require().Equal(expRes, res)
 			} else {
-				require.Error(t, err)
-				require.ErrorContains(t, err, tc.errContains)
+				suite.Require().Error(err)
 			}
 		})
 	}

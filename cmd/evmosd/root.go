@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package main
 
@@ -13,80 +26,52 @@ import (
 
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
-	"cosmossdk.io/log"
-	cmtcfg "github.com/cometbft/cometbft/config"
-	cmtcli "github.com/cometbft/cometbft/libs/cli"
-	dbm "github.com/cosmos/cosmos-db"
+	tmcfg "github.com/tendermint/tendermint/config"
+	tmcli "github.com/tendermint/tendermint/libs/cli"
+	"github.com/tendermint/tendermint/libs/log"
+	dbm "github.com/tendermint/tm-db"
 
-	"cosmossdk.io/store"
-	"cosmossdk.io/store/snapshots"
-	snapshottypes "cosmossdk.io/store/snapshots/types"
-	storetypes "cosmossdk.io/store/types"
-	confixcmd "cosmossdk.io/tools/confix/cmd"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	clientcfg "github.com/cosmos/cosmos-sdk/client/config"
+	"github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/pruning"
 	"github.com/cosmos/cosmos-sdk/client/rpc"
-	"github.com/cosmos/cosmos-sdk/client/snapshot"
 	sdkserver "github.com/cosmos/cosmos-sdk/server"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
+	"github.com/cosmos/cosmos-sdk/simapp/params"
+	"github.com/cosmos/cosmos-sdk/snapshots"
+	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
+	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdktestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
-	"github.com/cosmos/cosmos-sdk/x/auth/tx"
-	txmodule "github.com/cosmos/cosmos-sdk/x/auth/tx/config"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/crisis"
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
-	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
-	evmostypes "github.com/evmos/evmos/v20/types"
 
-	rosettaCmd "github.com/cosmos/rosetta/cmd"
+	evmosclient "github.com/evmos/evmos/v12/client"
+	"github.com/evmos/evmos/v12/client/debug"
+	"github.com/evmos/evmos/v12/encoding"
+	"github.com/evmos/evmos/v12/ethereum/eip712"
+	evmosserver "github.com/evmos/evmos/v12/server"
+	servercfg "github.com/evmos/evmos/v12/server/config"
+	srvflags "github.com/evmos/evmos/v12/server/flags"
 
-	evmosclient "github.com/evmos/evmos/v20/client"
-	"github.com/evmos/evmos/v20/client/block"
-	"github.com/evmos/evmos/v20/client/debug"
-	evmosserver "github.com/evmos/evmos/v20/server"
-	servercfg "github.com/evmos/evmos/v20/server/config"
-	srvflags "github.com/evmos/evmos/v20/server/flags"
-
-	"github.com/evmos/evmos/v20/app"
-	evmoskr "github.com/evmos/evmos/v20/crypto/keyring"
+	"github.com/evmos/evmos/v12/app"
+	cmdcfg "github.com/evmos/evmos/v12/cmd/config"
+	evmoskr "github.com/evmos/evmos/v12/crypto/keyring"
 )
 
-const EnvPrefix = "EVMOS"
-
-type emptyAppOptions struct{}
-
-func (ao emptyAppOptions) Get(_ string) interface{} { return nil }
+const (
+	EnvPrefix = "EVMOS"
+)
 
 // NewRootCmd creates a new root command for evmosd. It is called once in the
 // main function.
-func NewRootCmd() (*cobra.Command, sdktestutil.TestEncodingConfig) {
-	// we "pre"-instantiate the application for getting the injected/configured encoding configuration
-	// and the CLI options for the modules
-	// add keyring to autocli opts
-	tempApp := app.NewEvmos(
-		log.NewNopLogger(),
-		dbm.NewMemDB(),
-		nil, true, nil,
-		tempDir(app.DefaultNodeHome),
-		0,
-		emptyAppOptions{},
-		app.NoOpEvmosOptions,
-	)
-	encodingConfig := sdktestutil.TestEncodingConfig{
-		InterfaceRegistry: tempApp.InterfaceRegistry(),
-		Codec:             tempApp.AppCodec(),
-		TxConfig:          tempApp.GetTxConfig(),
-		Amino:             tempApp.LegacyAmino(),
-	}
+func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
+	encodingConfig := encoding.MakeConfig(app.ModuleBasics)
 	initClientCtx := client.Context{}.
 		WithCodec(encodingConfig.Codec).
 		WithInterfaceRegistry(encodingConfig.InterfaceRegistry).
@@ -94,11 +79,13 @@ func NewRootCmd() (*cobra.Command, sdktestutil.TestEncodingConfig) {
 		WithLegacyAmino(encodingConfig.Amino).
 		WithInput(os.Stdin).
 		WithAccountRetriever(types.AccountRetriever{}).
-		WithBroadcastMode(flags.FlagBroadcastMode).
+		WithBroadcastMode(flags.BroadcastBlock).
 		WithHomeDir(app.DefaultNodeHome).
 		WithKeyringOptions(evmoskr.Option()).
 		WithViper(EnvPrefix).
 		WithLedgerHasProtobuf(true)
+
+	eip712.SetEncodingConfig(encodingConfig)
 
 	rootCmd := &cobra.Command{
 		Use:   app.Name,
@@ -108,35 +95,14 @@ func NewRootCmd() (*cobra.Command, sdktestutil.TestEncodingConfig) {
 			cmd.SetOut(cmd.OutOrStdout())
 			cmd.SetErr(cmd.ErrOrStderr())
 
-			initClientCtx = initClientCtx.WithCmdContext(cmd.Context())
 			initClientCtx, err := client.ReadPersistentCommandFlags(initClientCtx, cmd.Flags())
 			if err != nil {
 				return err
 			}
 
-			initClientCtx, err = clientcfg.ReadFromClientConfig(initClientCtx)
+			initClientCtx, err = config.ReadFromClientConfig(initClientCtx)
 			if err != nil {
 				return err
-			}
-
-			// This needs to go after ReadFromClientConfig, as that function
-			// sets the RPC client needed for SIGN_MODE_TEXTUAL. This sign mode
-			// is only available if the client is online.
-			if !initClientCtx.Offline {
-				enabledSignModes := append(tx.DefaultSignModes, signing.SignMode_SIGN_MODE_TEXTUAL) //nolint:gocritic
-				txConfigOpts := tx.ConfigOptions{
-					EnabledSignModes:           enabledSignModes,
-					TextualCoinMetadataQueryFn: txmodule.NewGRPCCoinMetadataQueryFn(initClientCtx),
-				}
-				txConfig, err := tx.NewTxConfigWithOptions(
-					initClientCtx.Codec,
-					txConfigOpts,
-				)
-				if err != nil {
-					return err
-				}
-
-				initClientCtx = initClientCtx.WithTxConfig(txConfig)
 			}
 
 			if err := client.SetCmdClientContextHandler(initClientCtx, cmd); err != nil {
@@ -157,35 +123,19 @@ func NewRootCmd() (*cobra.Command, sdktestutil.TestEncodingConfig) {
 	a := appCreator{encodingConfig}
 	rootCmd.AddCommand(
 		evmosclient.ValidateChainID(
-			InitCmd(tempApp.BasicModuleManager, app.DefaultNodeHome),
+			InitCmd(app.ModuleBasics, app.DefaultNodeHome),
 		),
-		genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{},
-			app.DefaultNodeHome,
-			genutiltypes.DefaultMessageValidator,
-			tempApp.GetTxConfig().SigningContext().ValidatorAddressCodec(),
-		),
+		genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, app.DefaultNodeHome),
 		MigrateGenesisCmd(),
-		genutilcli.GenTxCmd(
-			tempApp.BasicModuleManager, tempApp.GetTxConfig(),
-			banktypes.GenesisBalancesIterator{},
-			app.DefaultNodeHome,
-			tempApp.GetTxConfig().SigningContext().ValidatorAddressCodec(),
-		),
-		genutilcli.ValidateGenesisCmd(tempApp.BasicModuleManager),
+		genutilcli.GenTxCmd(app.ModuleBasics, encodingConfig.TxConfig, banktypes.GenesisBalancesIterator{}, app.DefaultNodeHome),
+		genutilcli.ValidateGenesisCmd(app.ModuleBasics),
 		AddGenesisAccountCmd(app.DefaultNodeHome),
-		cmtcli.NewCompletionCmd(rootCmd, true),
-		NewTestnetCmd(tempApp.BasicModuleManager, banktypes.GenesisBalancesIterator{}),
+		tmcli.NewCompletionCmd(rootCmd, true),
+		NewTestnetCmd(app.ModuleBasics, banktypes.GenesisBalancesIterator{}),
 		debug.Cmd(),
-		confixcmd.ConfigCommand(),
-		pruning.Cmd(a.newApp, app.DefaultNodeHome),
-		snapshot.Cmd(a.newApp),
-		block.Cmd(),
+		config.Cmd(),
+		pruning.PruningCmd(a.newApp),
 	)
-
-	changeSetCmd := ChangeSetCmd()
-	if changeSetCmd != nil {
-		rootCmd.AddCommand(changeSetCmd)
-	}
 
 	evmosserver.AddCommands(
 		rootCmd,
@@ -196,7 +146,7 @@ func NewRootCmd() (*cobra.Command, sdktestutil.TestEncodingConfig) {
 
 	// add keybase, auxiliary RPC, query, and tx child commands
 	rootCmd.AddCommand(
-		sdkserver.StatusCommand(),
+		rpc.StatusCommand(),
 		queryCommand(),
 		txCommand(),
 		evmosclient.KeyCommands(app.DefaultNodeHome),
@@ -207,15 +157,7 @@ func NewRootCmd() (*cobra.Command, sdktestutil.TestEncodingConfig) {
 	}
 
 	// add rosetta
-	rootCmd.AddCommand(rosettaCmd.RosettaCommand(encodingConfig.InterfaceRegistry, encodingConfig.Codec))
-
-	autoCliOpts := tempApp.AutoCliOpts()
-	initClientCtx, _ = clientcfg.ReadFromClientConfig(initClientCtx)
-	autoCliOpts.ClientCtx = initClientCtx
-
-	if err := autoCliOpts.EnhanceRootCommand(rootCmd); err != nil {
-		panic(err)
-	}
+	rootCmd.AddCommand(sdkserver.RosettaCommand(encodingConfig.InterfaceRegistry, encodingConfig.Codec))
 
 	return rootCmd, encodingConfig
 }
@@ -235,14 +177,14 @@ func queryCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(
-		rpc.QueryEventForTxCmd(),
+		authcmd.GetAccountCmd(),
 		rpc.ValidatorCommand(),
+		rpc.BlockCommand(),
 		authcmd.QueryTxsByEventsCmd(),
-		sdkserver.QueryBlockCmd(),
 		authcmd.QueryTxCmd(),
-		sdkserver.QueryBlockResultsCmd(),
 	)
 
+	app.ModuleBasics.AddQueryCommands(cmd)
 	cmd.PersistentFlags().String(flags.FlagChainID, "", "The network chain ID")
 
 	return cmd
@@ -266,12 +208,10 @@ func txCommand() *cobra.Command {
 		authcmd.GetBroadcastCommand(),
 		authcmd.GetEncodeCommand(),
 		authcmd.GetDecodeCommand(),
-		authcmd.GetSimulateCmd(),
+		authcmd.GetAuxToFeeCommand(),
 	)
 
-	// DefaultGasAdjustment value to use as default in gas-adjustment flag
-	flags.DefaultGasAdjustment = servercfg.DefaultGasAdjustment
-
+	app.ModuleBasics.AddTxCommands(cmd)
 	cmd.PersistentFlags().String(flags.FlagChainID, "", "The network chain ID")
 
 	return cmd
@@ -280,13 +220,7 @@ func txCommand() *cobra.Command {
 // initAppConfig helps to override default appConfig template and configs.
 // return "", nil if no custom configuration is required for the application.
 func initAppConfig() (string, interface{}) {
-	baseDenom, err := sdk.GetBaseDenom()
-	if err != nil {
-		// NOTE: We need to provide a default base denom for the tempApp created by the RootCmd
-		// FIXME: if we remove the min gas price default config, this will no longer be needed
-		baseDenom = evmostypes.BaseDenom
-	}
-	customAppTemplate, customAppConfig := servercfg.AppConfig(baseDenom)
+	customAppTemplate, customAppConfig := servercfg.AppConfig(cmdcfg.BaseDenom)
 
 	srvCfg, ok := customAppConfig.(servercfg.Config)
 	if !ok {
@@ -301,12 +235,12 @@ func initAppConfig() (string, interface{}) {
 }
 
 type appCreator struct {
-	encCfg sdktestutil.TestEncodingConfig
+	encCfg params.EncodingConfig
 }
 
 // newApp is an appCreator
 func (a appCreator) newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, appOpts servertypes.AppOptions) servertypes.Application {
-	var cache storetypes.MultiStorePersistentCache
+	var cache sdk.MultiStorePersistentCache
 
 	if cast.ToBool(appOpts.Get(sdkserver.FlagInterBlockCache)) {
 		cache = store.NewCommitKVStoreCacheManager()
@@ -322,8 +256,7 @@ func (a appCreator) newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, a
 		panic(err)
 	}
 
-	home := cast.ToString(appOpts.Get(flags.FlagHome))
-	snapshotDir := filepath.Join(home, "data", "snapshots")
+	snapshotDir := filepath.Join(cast.ToString(appOpts.Get(flags.FlagHome)), "data", "snapshots")
 	snapshotDB, err := dbm.NewDB("metadata", sdkserver.GetAppDBBackend(appOpts), snapshotDir)
 	if err != nil {
 		panic(err)
@@ -339,29 +272,12 @@ func (a appCreator) newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, a
 		cast.ToUint32(appOpts.Get(sdkserver.FlagStateSyncSnapshotKeepRecent)),
 	)
 
-	// Setup chainId
-	chainID := cast.ToString(appOpts.Get(flags.FlagChainID))
-	if len(chainID) == 0 {
-		v := viper.New()
-		v.AddConfigPath(filepath.Join(home, "config"))
-		v.SetConfigName("client")
-		v.SetConfigType("toml")
-		if err := v.ReadInConfig(); err != nil {
-			panic(err)
-		}
-		conf := new(clientcfg.ClientConfig)
-		if err := v.Unmarshal(conf); err != nil {
-			panic(err)
-		}
-		chainID = conf.ChainID
-	}
-
 	evmosApp := app.NewEvmos(
 		logger, db, traceStore, true, skipUpgradeHeights,
 		cast.ToString(appOpts.Get(flags.FlagHome)),
 		cast.ToUint(appOpts.Get(sdkserver.FlagInvCheckPeriod)),
+		a.encCfg,
 		appOpts,
-		app.EvmosAppOptions,
 		baseapp.SetPruning(pruningOpts),
 		baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(sdkserver.FlagMinGasPrices))),
 		baseapp.SetHaltHeight(cast.ToUint64(appOpts.Get(sdkserver.FlagHaltHeight))),
@@ -373,7 +289,6 @@ func (a appCreator) newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, a
 		baseapp.SetSnapshot(snapshotStore, snapshotOptions),
 		baseapp.SetIAVLCacheSize(cast.ToInt(appOpts.Get(sdkserver.FlagIAVLCacheSize))),
 		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(sdkserver.FlagDisableIAVLFastNode))),
-		baseapp.SetChainID(chainID),
 	)
 
 	return evmosApp
@@ -382,14 +297,8 @@ func (a appCreator) newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, a
 // appExport creates a new simapp (optionally at a given height)
 // and exports state.
 func (a appCreator) appExport(
-	logger log.Logger,
-	db dbm.DB,
-	traceStore io.Writer,
-	height int64,
-	forZeroHeight bool,
-	jailAllowedAddrs []string,
+	logger log.Logger, db dbm.DB, traceStore io.Writer, height int64, forZeroHeight bool, jailAllowedAddrs []string,
 	appOpts servertypes.AppOptions,
-	modulesToExport []string,
 ) (servertypes.ExportedApp, error) {
 	var evmosApp *app.Evmos
 	homePath, ok := appOpts.Get(flags.FlagHome).(string)
@@ -398,37 +307,29 @@ func (a appCreator) appExport(
 	}
 
 	if height != -1 {
-		evmosApp = app.NewEvmos(logger, db, traceStore, false, map[int64]bool{}, "", uint(1), appOpts, app.EvmosAppOptions)
+		evmosApp = app.NewEvmos(logger, db, traceStore, false, map[int64]bool{}, "", uint(1), a.encCfg, appOpts)
 
 		if err := evmosApp.LoadHeight(height); err != nil {
 			return servertypes.ExportedApp{}, err
 		}
 	} else {
-		evmosApp = app.NewEvmos(logger, db, traceStore, true, map[int64]bool{}, "", uint(1), appOpts, app.EvmosAppOptions)
+		evmosApp = app.NewEvmos(logger, db, traceStore, true, map[int64]bool{}, "", uint(1), a.encCfg, appOpts)
 	}
 
-	return evmosApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs, modulesToExport)
+	return evmosApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
 }
 
 // initTendermintConfig helps to override default Tendermint Config values.
-// return cmtcfg.DefaultConfig if no custom configuration is required for the application.
-func initTendermintConfig() *cmtcfg.Config {
-	cfg := cmtcfg.DefaultConfig()
-	cfg.Consensus.TimeoutCommit = time.Second * 3
+// return tmcfg.DefaultConfig if no custom configuration is required for the application.
+func initTendermintConfig() *tmcfg.Config {
+	cfg := tmcfg.DefaultConfig()
+	cfg.Consensus.TimeoutCommit = time.Second
+	// use v0 since v1 severely impacts the node's performance
+	cfg.Mempool.Version = tmcfg.MempoolV0
 
 	// to put a higher strain on node memory, use these values:
 	// cfg.P2P.MaxNumInboundPeers = 100
 	// cfg.P2P.MaxNumOutboundPeers = 40
 
 	return cfg
-}
-
-func tempDir(defaultHome string) string {
-	dir, err := os.MkdirTemp("", "evmos")
-	if err != nil {
-		dir = defaultHome
-	}
-	defer os.RemoveAll(dir)
-
-	return dir
 }

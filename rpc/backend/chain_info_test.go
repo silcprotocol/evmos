@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"cosmossdk.io/math"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
@@ -12,17 +11,18 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"github.com/cometbft/cometbft/abci/types"
-	tmrpctypes "github.com/cometbft/cometbft/rpc/core/types"
+	"github.com/tendermint/tendermint/abci/types"
+	tmrpctypes "github.com/tendermint/tendermint/rpc/core/types"
 
-	"github.com/evmos/evmos/v20/rpc/backend/mocks"
-	rpc "github.com/evmos/evmos/v20/rpc/types"
-	utiltx "github.com/evmos/evmos/v20/testutil/tx"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/rpc/backend/mocks"
+	rpc "github.com/evmos/evmos/v12/rpc/types"
+	utiltx "github.com/evmos/evmos/v12/testutil/tx"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
+	feemarkettypes "github.com/evmos/evmos/v12/x/feemarket/types"
 )
 
 func (suite *BackendTestSuite) TestBaseFee() {
-	baseFee := math.NewInt(1)
+	baseFee := sdk.NewInt(1)
 
 	testCases := []struct {
 		name         string
@@ -45,7 +45,7 @@ func (suite *BackendTestSuite) TestBaseFee() {
 			"fail - grpc BaseFee error - with non feemarket block event",
 			&tmrpctypes.ResultBlockResults{
 				Height: 1,
-				FinalizeBlockEvents: []types.Event{
+				BeginBlockEvents: []types.Event{
 					{
 						Type: evmtypes.EventTypeBlockBloom,
 					},
@@ -62,9 +62,9 @@ func (suite *BackendTestSuite) TestBaseFee() {
 			"fail - grpc BaseFee error - with feemarket block event",
 			&tmrpctypes.ResultBlockResults{
 				Height: 1,
-				FinalizeBlockEvents: []types.Event{
+				BeginBlockEvents: []types.Event{
 					{
-						Type: evmtypes.EventTypeFeeMarket,
+						Type: feemarkettypes.EventTypeFeeMarket,
 					},
 				},
 			},
@@ -79,11 +79,11 @@ func (suite *BackendTestSuite) TestBaseFee() {
 			"fail - grpc BaseFee error - with feemarket block event with wrong attribute value",
 			&tmrpctypes.ResultBlockResults{
 				Height: 1,
-				FinalizeBlockEvents: []types.Event{
+				BeginBlockEvents: []types.Event{
 					{
-						Type: evmtypes.EventTypeFeeMarket,
+						Type: feemarkettypes.EventTypeFeeMarket,
 						Attributes: []types.EventAttribute{
-							{Value: "/1"},
+							{Value: []byte{0x1}},
 						},
 					},
 				},
@@ -99,11 +99,11 @@ func (suite *BackendTestSuite) TestBaseFee() {
 			"fail - grpc baseFee error - with feemarket block event with baseFee attribute value",
 			&tmrpctypes.ResultBlockResults{
 				Height: 1,
-				FinalizeBlockEvents: []types.Event{
+				BeginBlockEvents: []types.Event{
 					{
-						Type: evmtypes.EventTypeFeeMarket,
+						Type: feemarkettypes.EventTypeFeeMarket,
 						Attributes: []types.EventAttribute{
-							{Value: baseFee.String()},
+							{Value: []byte(baseFee.String())},
 						},
 					},
 				},
@@ -290,17 +290,17 @@ func (suite *BackendTestSuite) TestGlobalMinGasPrice() {
 	testCases := []struct {
 		name           string
 		registerMock   func()
-		expMinGasPrice *big.Int
+		expMinGasPrice sdk.Dec
 		expPass        bool
 	}{
 		{
-			"pass - get GlobalMinGasPrice",
+			"fail - Can't get FeeMarket params",
 			func() {
-				qc := suite.backend.queryClient.QueryClient.(*mocks.EVMQueryClient)
-				RegisterGlobalMinGasPrice(qc, 1)
+				feeMarketCleint := suite.backend.queryClient.FeeMarket.(*mocks.FeeMarketQueryClient)
+				RegisterFeeMarketParamsError(feeMarketCleint, int64(1))
 			},
-			big.NewInt(1),
-			true,
+			sdk.ZeroDec(),
+			false,
 		},
 	}
 
@@ -332,7 +332,7 @@ func (suite *BackendTestSuite) TestFeeHistory() {
 	}{
 		{
 			"fail - can't get params ",
-			func(_ sdk.AccAddress) {
+			func(validator sdk.AccAddress) {
 				var header metadata.MD
 				queryClient := suite.backend.queryClient.QueryClient.(*mocks.EVMQueryClient)
 				suite.backend.cfg.JSONRPC.FeeHistoryCap = 0
@@ -346,7 +346,7 @@ func (suite *BackendTestSuite) TestFeeHistory() {
 		},
 		{
 			"fail - user block count higher than max block count ",
-			func(_ sdk.AccAddress) {
+			func(validator sdk.AccAddress) {
 				var header metadata.MD
 				queryClient := suite.backend.queryClient.QueryClient.(*mocks.EVMQueryClient)
 				suite.backend.cfg.JSONRPC.FeeHistoryCap = 0
@@ -360,7 +360,7 @@ func (suite *BackendTestSuite) TestFeeHistory() {
 		},
 		{
 			"fail - Tendermint block fetching error ",
-			func(_ sdk.AccAddress) {
+			func(validator sdk.AccAddress) {
 				client := suite.backend.clientCtx.Client.(*mocks.Client)
 				suite.backend.cfg.JSONRPC.FeeHistoryCap = 2
 				RegisterBlockError(client, ethrpc.BlockNumber(1).Int64())
@@ -373,7 +373,7 @@ func (suite *BackendTestSuite) TestFeeHistory() {
 		},
 		{
 			"fail - Eth block fetching error",
-			func(sdk.AccAddress) {
+			func(validator sdk.AccAddress) {
 				client := suite.backend.clientCtx.Client.(*mocks.Client)
 				suite.backend.cfg.JSONRPC.FeeHistoryCap = 2
 				_, err := RegisterBlock(client, ethrpc.BlockNumber(1).Int64(), nil)
@@ -389,7 +389,7 @@ func (suite *BackendTestSuite) TestFeeHistory() {
 		{
 			"fail - Invalid base fee",
 			func(validator sdk.AccAddress) {
-				// baseFee := math.NewInt(1)
+				// baseFee := sdk.NewInt(1)
 				queryClient := suite.backend.queryClient.QueryClient.(*mocks.EVMQueryClient)
 				client := suite.backend.clientCtx.Client.(*mocks.Client)
 				suite.backend.cfg.JSONRPC.FeeHistoryCap = 2
@@ -411,7 +411,7 @@ func (suite *BackendTestSuite) TestFeeHistory() {
 			"pass - Valid FeeHistoryResults object",
 			func(validator sdk.AccAddress) {
 				var header metadata.MD
-				baseFee := math.NewInt(1)
+				baseFee := sdk.NewInt(1)
 				queryClient := suite.backend.queryClient.QueryClient.(*mocks.EVMQueryClient)
 				client := suite.backend.clientCtx.Client.(*mocks.Client)
 				suite.backend.cfg.JSONRPC.FeeHistoryCap = 2
@@ -423,6 +423,7 @@ func (suite *BackendTestSuite) TestFeeHistory() {
 				RegisterValidatorAccount(queryClient, validator)
 				RegisterConsensusParams(client, 1)
 				RegisterParams(queryClient, &header, 1)
+				RegisterParamsWithoutHeader(queryClient, 1)
 			},
 			1,
 			1,

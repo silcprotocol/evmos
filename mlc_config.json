@@ -1,10 +1,5 @@
 {
   "retryOn429": true,
   "retryCount": 3,
-  "fallbackRetryDelay": "20s",
-  "ignorePatterns": [
-    {
-      "pattern": "^https://twitter.com/.*"
-    }
-  ]
+  "fallbackRetryDelay": "20s"
 }

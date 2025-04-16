@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package backend
 
 import (
@@ -7,13 +20,12 @@ import (
 	"fmt"
 	"math"
 
-	tmrpcclient "github.com/cometbft/cometbft/rpc/client"
-	tmrpctypes "github.com/cometbft/cometbft/rpc/core/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	rpctypes "github.com/evmos/evmos/v20/rpc/types"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	rpctypes "github.com/evmos/evmos/v12/rpc/types"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 	"github.com/pkg/errors"
+	tmrpctypes "github.com/tendermint/tendermint/rpc/core/types"
 )
 
 // TraceTransaction returns the structured logs created during the execution of EVM
@@ -41,7 +53,7 @@ func (b *Backend) TraceTransaction(hash common.Hash, config *evmtypes.TraceConfi
 	if len(blk.Block.Txs) > math.MaxUint32 {
 		return nil, fmt.Errorf("tx count %d is overfloing", len(blk.Block.Txs))
 	}
-	txsLen := uint32(len(blk.Block.Txs)) // #nosec G701 G115 -- checked for int overflow already
+	txsLen := uint32(len(blk.Block.Txs)) // #nosec G701 -- checked for int overflow already
 	if txsLen < transaction.TxIndex {
 		b.logger.Debug("tx index out of bounds", "index", transaction.TxIndex, "hash", hash.String(), "height", blk.Block.Height)
 		return nil, fmt.Errorf("transaction not included in block %v", blk.Block.Height)
@@ -86,16 +98,6 @@ func (b *Backend) TraceTransaction(hash common.Hash, config *evmtypes.TraceConfi
 		return nil, fmt.Errorf("invalid transaction type %T", tx)
 	}
 
-	nc, ok := b.clientCtx.Client.(tmrpcclient.NetworkClient)
-	if !ok {
-		return nil, errors.New("invalid rpc client")
-	}
-
-	cp, err := nc.ConsensusParams(b.ctx, &blk.Block.Height)
-	if err != nil {
-		return nil, err
-	}
-
 	traceTxRequest := evmtypes.QueryTraceTxRequest{
 		Msg:             ethMessage,
 		Predecessors:    predecessors,
@@ -104,7 +106,6 @@ func (b *Backend) TraceTransaction(hash common.Hash, config *evmtypes.TraceConfi
 		BlockHash:       common.Bytes2Hex(blk.BlockID.Hash),
 		ProposerAddress: sdk.ConsAddress(blk.Block.ProposerAddress),
 		ChainId:         b.chainID.Int64(),
-		BlockMaxGas:     cp.ConsensusParams.Block.MaxGas,
 	}
 
 	if config != nil {
@@ -176,16 +177,6 @@ func (b *Backend) TraceBlock(height rpctypes.BlockNumber,
 	}
 	ctxWithHeight := rpctypes.ContextWithHeight(int64(contextHeight))
 
-	nc, ok := b.clientCtx.Client.(tmrpcclient.NetworkClient)
-	if !ok {
-		return nil, errors.New("invalid rpc client")
-	}
-
-	cp, err := nc.ConsensusParams(b.ctx, &block.Block.Height)
-	if err != nil {
-		return nil, err
-	}
-
 	traceBlockRequest := &evmtypes.QueryTraceBlockRequest{
 		Txs:             txsMessages,
 		TraceConfig:     config,
@@ -194,7 +185,6 @@ func (b *Backend) TraceBlock(height rpctypes.BlockNumber,
 		BlockHash:       common.Bytes2Hex(block.BlockID.Hash),
 		ProposerAddress: sdk.ConsAddress(block.Block.ProposerAddress),
 		ChainId:         b.chainID.Int64(),
-		BlockMaxGas:     cp.ConsensusParams.Block.MaxGas,
 	}
 
 	res, err := b.queryClient.TraceBlock(ctxWithHeight, traceBlockRequest)

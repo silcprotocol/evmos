@@ -8,19 +8,17 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethparams "github.com/ethereum/go-ethereum/params"
-	utiltx "github.com/evmos/evmos/v20/testutil/tx"
-	"github.com/evmos/evmos/v20/x/evm/keeper"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/x/evm/keeper"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 func (suite *KeeperTestSuite) TestCheckSenderBalance() {
 	hundredInt := sdkmath.NewInt(100)
-	zeroInt := sdkmath.ZeroInt()
-	oneInt := sdkmath.OneInt()
+	zeroInt := sdk.ZeroInt()
+	oneInt := sdk.OneInt()
 	fiveInt := sdkmath.NewInt(5)
 	fiftyInt := sdkmath.NewInt(50)
 	negInt := sdkmath.NewInt(-10)
-	addr := utiltx.GenerateAddress()
 
 	testCases := []struct {
 		name            string
@@ -37,168 +35,168 @@ func (suite *KeeperTestSuite) TestCheckSenderBalance() {
 	}{
 		{
 			name:       "Enough balance",
-			to:         suite.keyring.GetAddr(0).String(),
+			to:         suite.address.String(),
 			gasLimit:   10,
 			gasPrice:   &oneInt,
 			cost:       &oneInt,
-			from:       addr.String(),
+			from:       suite.address.String(),
 			accessList: &ethtypes.AccessList{},
 			expectPass: true,
 		},
 		{
 			name:       "Equal balance",
-			to:         suite.keyring.GetAddr(0).String(),
+			to:         suite.address.String(),
 			gasLimit:   99,
 			gasPrice:   &oneInt,
 			cost:       &oneInt,
-			from:       addr.String(),
+			from:       suite.address.String(),
 			accessList: &ethtypes.AccessList{},
 			expectPass: true,
 		},
 		{
 			name:       "negative cost",
-			to:         suite.keyring.GetAddr(0).String(),
+			to:         suite.address.String(),
 			gasLimit:   1,
 			gasPrice:   &oneInt,
 			cost:       &negInt,
-			from:       addr.String(),
+			from:       suite.address.String(),
 			accessList: &ethtypes.AccessList{},
 			expectPass: false,
 		},
 		{
 			name:       "Higher gas limit, not enough balance",
-			to:         suite.keyring.GetAddr(0).String(),
+			to:         suite.address.String(),
 			gasLimit:   100,
 			gasPrice:   &oneInt,
 			cost:       &oneInt,
-			from:       addr.String(),
+			from:       suite.address.String(),
 			accessList: &ethtypes.AccessList{},
 			expectPass: false,
 		},
 		{
 			name:       "Higher gas price, enough balance",
-			to:         suite.keyring.GetAddr(0).String(),
+			to:         suite.address.String(),
 			gasLimit:   10,
 			gasPrice:   &fiveInt,
 			cost:       &oneInt,
-			from:       addr.String(),
+			from:       suite.address.String(),
 			accessList: &ethtypes.AccessList{},
 			expectPass: true,
 		},
 		{
 			name:       "Higher gas price, not enough balance",
-			to:         suite.keyring.GetAddr(0).String(),
+			to:         suite.address.String(),
 			gasLimit:   20,
 			gasPrice:   &fiveInt,
 			cost:       &oneInt,
-			from:       addr.String(),
+			from:       suite.address.String(),
 			accessList: &ethtypes.AccessList{},
 			expectPass: false,
 		},
 		{
 			name:       "Higher cost, enough balance",
-			to:         suite.keyring.GetAddr(0).String(),
+			to:         suite.address.String(),
 			gasLimit:   10,
 			gasPrice:   &fiveInt,
 			cost:       &fiftyInt,
-			from:       addr.String(),
+			from:       suite.address.String(),
 			accessList: &ethtypes.AccessList{},
 			expectPass: true,
 		},
 		{
 			name:       "Higher cost, not enough balance",
-			to:         suite.keyring.GetAddr(0).String(),
+			to:         suite.address.String(),
 			gasLimit:   10,
 			gasPrice:   &fiveInt,
 			cost:       &hundredInt,
-			from:       addr.String(),
+			from:       suite.address.String(),
 			accessList: &ethtypes.AccessList{},
 			expectPass: false,
 		},
 		{
 			name:            "Enough balance w/ enableFeemarket",
-			to:              suite.keyring.GetAddr(0).String(),
+			to:              suite.address.String(),
 			gasLimit:        10,
 			gasFeeCap:       big.NewInt(1),
 			cost:            &oneInt,
-			from:            addr.String(),
+			from:            suite.address.String(),
 			accessList:      &ethtypes.AccessList{},
 			expectPass:      true,
 			enableFeemarket: true,
 		},
 		{
 			name:            "Equal balance w/ enableFeemarket",
-			to:              suite.keyring.GetAddr(0).String(),
+			to:              suite.address.String(),
 			gasLimit:        99,
 			gasFeeCap:       big.NewInt(1),
 			cost:            &oneInt,
-			from:            addr.String(),
+			from:            suite.address.String(),
 			accessList:      &ethtypes.AccessList{},
 			expectPass:      true,
 			enableFeemarket: true,
 		},
 		{
 			name:            "negative cost w/ enableFeemarket",
-			to:              suite.keyring.GetAddr(0).String(),
+			to:              suite.address.String(),
 			gasLimit:        1,
 			gasFeeCap:       big.NewInt(1),
 			cost:            &negInt,
-			from:            addr.String(),
+			from:            suite.address.String(),
 			accessList:      &ethtypes.AccessList{},
 			expectPass:      false,
 			enableFeemarket: true,
 		},
 		{
 			name:            "Higher gas limit, not enough balance w/ enableFeemarket",
-			to:              suite.keyring.GetAddr(0).String(),
+			to:              suite.address.String(),
 			gasLimit:        100,
 			gasFeeCap:       big.NewInt(1),
 			cost:            &oneInt,
-			from:            addr.String(),
+			from:            suite.address.String(),
 			accessList:      &ethtypes.AccessList{},
 			expectPass:      false,
 			enableFeemarket: true,
 		},
 		{
 			name:            "Higher gas price, enough balance w/ enableFeemarket",
-			to:              suite.keyring.GetAddr(0).String(),
+			to:              suite.address.String(),
 			gasLimit:        10,
 			gasFeeCap:       big.NewInt(5),
 			cost:            &oneInt,
-			from:            addr.String(),
+			from:            suite.address.String(),
 			accessList:      &ethtypes.AccessList{},
 			expectPass:      true,
 			enableFeemarket: true,
 		},
 		{
 			name:            "Higher gas price, not enough balance w/ enableFeemarket",
-			to:              suite.keyring.GetAddr(0).String(),
+			to:              suite.address.String(),
 			gasLimit:        20,
 			gasFeeCap:       big.NewInt(5),
 			cost:            &oneInt,
-			from:            addr.String(),
+			from:            suite.address.String(),
 			accessList:      &ethtypes.AccessList{},
 			expectPass:      false,
 			enableFeemarket: true,
 		},
 		{
 			name:            "Higher cost, enough balance w/ enableFeemarket",
-			to:              suite.keyring.GetAddr(0).String(),
+			to:              suite.address.String(),
 			gasLimit:        10,
 			gasFeeCap:       big.NewInt(5),
 			cost:            &fiftyInt,
-			from:            addr.String(),
+			from:            suite.address.String(),
 			accessList:      &ethtypes.AccessList{},
 			expectPass:      true,
 			enableFeemarket: true,
 		},
 		{
 			name:            "Higher cost, not enough balance w/ enableFeemarket",
-			to:              suite.keyring.GetAddr(0).String(),
+			to:              suite.address.String(),
 			gasLimit:        10,
 			gasFeeCap:       big.NewInt(5),
 			cost:            &hundredInt,
-			from:            addr.String(),
+			from:            suite.address.String(),
 			accessList:      &ethtypes.AccessList{},
 			expectPass:      false,
 			enableFeemarket: true,
@@ -206,8 +204,8 @@ func (suite *KeeperTestSuite) TestCheckSenderBalance() {
 	}
 
 	vmdb := suite.StateDB()
-	vmdb.AddBalance(addr, hundredInt.BigInt())
-	balance := vmdb.GetBalance(addr)
+	vmdb.AddBalance(suite.address, hundredInt.BigInt())
+	balance := vmdb.GetBalance(suite.address)
 	suite.Require().Equal(balance, hundredInt.BigInt())
 	err := vmdb.Commit()
 	suite.Require().NoError(err, "Unexpected error while committing to vmdb: %d", err)
@@ -248,7 +246,7 @@ func (suite *KeeperTestSuite) TestCheckSenderBalance() {
 
 			txData, _ := evmtypes.UnpackTxData(tx.Data)
 
-			acct := suite.network.App.EvmKeeper.GetAccountOrEmpty(suite.network.GetContext(), addr)
+			acct := suite.app.EvmKeeper.GetAccountOrEmpty(suite.ctx, suite.address)
 			err := keeper.CheckSenderBalance(
 				sdkmath.NewIntFromBigInt(acct.Balance),
 				txData,
@@ -271,11 +269,10 @@ func (suite *KeeperTestSuite) TestCheckSenderBalance() {
 // In practice, the two tested functions will also be sequentially executed.
 func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 	hundredInt := sdkmath.NewInt(100)
-	zeroInt := sdkmath.ZeroInt()
+	zeroInt := sdk.ZeroInt()
 	oneInt := sdkmath.NewInt(1)
 	fiveInt := sdkmath.NewInt(5)
 	fiftyInt := sdkmath.NewInt(50)
-	addr, _ := utiltx.NewAddrKey()
 
 	// should be enough to cover all test cases
 	initBalance := sdkmath.NewInt((ethparams.InitialBaseFee + 10) * 105)
@@ -302,7 +299,7 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			accessList:       &ethtypes.AccessList{},
 			expectPassVerify: true,
 			expectPassDeduct: true,
-			from:             addr.String(),
+			from:             suite.address.String(),
 		},
 		{
 			name:             "Equal balance",
@@ -312,7 +309,7 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			accessList:       &ethtypes.AccessList{},
 			expectPassVerify: true,
 			expectPassDeduct: true,
-			from:             addr.String(),
+			from:             suite.address.String(),
 		},
 		{
 			name:             "Higher gas limit, not enough balance",
@@ -322,7 +319,7 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			accessList:       &ethtypes.AccessList{},
 			expectPassVerify: true,
 			expectPassDeduct: false,
-			from:             addr.String(),
+			from:             suite.address.String(),
 		},
 		{
 			name:             "Higher gas price, enough balance",
@@ -332,7 +329,7 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			accessList:       &ethtypes.AccessList{},
 			expectPassVerify: true,
 			expectPassDeduct: true,
-			from:             addr.String(),
+			from:             suite.address.String(),
 		},
 		{
 			name:             "Higher gas price, not enough balance",
@@ -342,7 +339,7 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			accessList:       &ethtypes.AccessList{},
 			expectPassVerify: true,
 			expectPassDeduct: false,
-			from:             addr.String(),
+			from:             suite.address.String(),
 		},
 		// This case is expected to be true because the fees can be deducted, but the tx
 		// execution is going to fail because there is no more balance to pay the cost
@@ -354,7 +351,7 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			accessList:       &ethtypes.AccessList{},
 			expectPassVerify: true,
 			expectPassDeduct: true,
-			from:             addr.String(),
+			from:             suite.address.String(),
 		},
 		//  testcases with enableFeemarket enabled.
 		{
@@ -367,7 +364,7 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			expectPassVerify: false,
 			expectPassDeduct: true,
 			enableFeemarket:  true,
-			from:             addr.String(),
+			from:             suite.address.String(),
 		},
 		{
 			name:             "empty tip fee is valid to deduct",
@@ -379,7 +376,7 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			expectPassVerify: true,
 			expectPassDeduct: true,
 			enableFeemarket:  true,
-			from:             addr.String(),
+			from:             suite.address.String(),
 		},
 		{
 			name:             "effectiveTip equal to gasTipCap",
@@ -390,7 +387,7 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			expectPassVerify: true,
 			expectPassDeduct: true,
 			enableFeemarket:  true,
-			from:             addr.String(),
+			from:             suite.address.String(),
 		},
 		{
 			name:             "effectiveTip equal to (gasFeeCap - baseFee)",
@@ -402,7 +399,7 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			expectPassVerify: true,
 			expectPassDeduct: true,
 			enableFeemarket:  true,
-			from:             addr.String(),
+			from:             suite.address.String(),
 		},
 		{
 			name:             "Invalid from address",
@@ -421,13 +418,13 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			cost:     &oneInt,
 			accessList: &ethtypes.AccessList{
 				ethtypes.AccessTuple{
-					Address:     suite.keyring.GetAddr(0),
+					Address:     suite.address,
 					StorageKeys: []common.Hash{},
 				},
 			},
 			expectPassVerify: true,
 			expectPassDeduct: true,
-			from:             addr.String(),
+			from:             suite.address.String(),
 		},
 		{
 			name:             "gasLimit < intrinsicGas during IsCheckTx",
@@ -437,9 +434,9 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			accessList:       &ethtypes.AccessList{},
 			expectPassVerify: false,
 			expectPassDeduct: true,
-			from:             addr.String(),
+			from:             suite.address.String(),
 			malleate: func() {
-				suite.network.WithIsCheckTxCtx(true)
+				suite.ctx = suite.ctx.WithIsCheckTx(true)
 			},
 		},
 	}
@@ -467,26 +464,25 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 				} else {
 					gasTipCap = tc.gasTipCap
 				}
-				vmdb.AddBalance(addr, initBalance.BigInt())
-				balance := vmdb.GetBalance(addr)
+				vmdb.AddBalance(suite.address, initBalance.BigInt())
+				balance := vmdb.GetBalance(suite.address)
 				suite.Require().Equal(balance, initBalance.BigInt())
 			} else {
 				if tc.gasPrice != nil {
 					gasPrice = tc.gasPrice.BigInt()
 				}
 
-				vmdb.AddBalance(addr, hundredInt.BigInt())
-				balance := vmdb.GetBalance(addr)
+				vmdb.AddBalance(suite.address, hundredInt.BigInt())
+				balance := vmdb.GetBalance(suite.address)
 				suite.Require().Equal(balance, hundredInt.BigInt())
 			}
 			err := vmdb.Commit()
 			suite.Require().NoError(err, "Unexpected error while committing to vmdb: %d", err)
 
-			toAddr := suite.keyring.GetAddr(0)
 			ethTxParams := &evmtypes.EvmTxArgs{
 				ChainID:   zeroInt.BigInt(),
 				Nonce:     1,
-				To:        &toAddr,
+				To:        &suite.address,
 				Amount:    amount,
 				GasLimit:  tc.gasLimit,
 				GasPrice:  gasPrice,
@@ -498,20 +494,21 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 			tx.From = tc.from
 
 			txData, _ := evmtypes.UnpackTxData(tx.Data)
-			baseFee := suite.network.App.EvmKeeper.GetBaseFee(suite.network.GetContext())
+
+			evmParams := suite.app.EvmKeeper.GetParams(suite.ctx)
+			ethCfg := evmParams.GetChainConfig().EthereumConfig(nil)
+			baseFee := suite.app.EvmKeeper.GetBaseFee(suite.ctx, ethCfg)
 			priority := evmtypes.GetTxPriority(txData, baseFee)
 
-			baseDenom := evmtypes.GetEVMCoinDenom()
-
-			fees, err := keeper.VerifyFee(txData, baseDenom, baseFee, false, false, suite.network.GetContext().IsCheckTx())
+			fees, err := keeper.VerifyFee(txData, evmtypes.DefaultEVMDenom, baseFee, false, false, suite.ctx.IsCheckTx())
 			if tc.expectPassVerify {
 				suite.Require().NoError(err, "valid test %d failed - '%s'", i, tc.name)
 				if tc.enableFeemarket {
-					baseFee := suite.network.App.FeeMarketKeeper.GetBaseFee(suite.network.GetContext())
+					baseFee := suite.app.FeeMarketKeeper.GetBaseFee(suite.ctx)
 					suite.Require().Equal(
 						fees,
 						sdk.NewCoins(
-							sdk.NewCoin(baseDenom, sdkmath.NewIntFromBigInt(txData.EffectiveFee(baseFee.TruncateInt().BigInt()))),
+							sdk.NewCoin(evmtypes.DefaultEVMDenom, sdkmath.NewIntFromBigInt(txData.EffectiveFee(baseFee))),
 						),
 						"valid test %d failed, fee value is wrong  - '%s'", i, tc.name,
 					)
@@ -520,7 +517,7 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 					suite.Require().Equal(
 						fees,
 						sdk.NewCoins(
-							sdk.NewCoin(baseDenom, tc.gasPrice.Mul(sdkmath.NewIntFromUint64(tc.gasLimit))),
+							sdk.NewCoin(evmtypes.DefaultEVMDenom, tc.gasPrice.Mul(sdkmath.NewIntFromUint64(tc.gasLimit))),
 						),
 						"valid test %d failed, fee value is wrong  - '%s'", i, tc.name,
 					)
@@ -530,7 +527,7 @@ func (suite *KeeperTestSuite) TestVerifyFeeAndDeductTxCostsFromUserBalance() {
 				suite.Require().Nil(fees, "invalid test %d passed. fees value must be nil - '%s'", i, tc.name)
 			}
 
-			err = suite.network.App.EvmKeeper.DeductTxCostsFromUserBalance(suite.network.GetContext(), fees, common.HexToAddress(tx.From))
+			err = suite.app.EvmKeeper.DeductTxCostsFromUserBalance(suite.ctx, fees, common.HexToAddress(tx.From))
 			if tc.expectPassDeduct {
 				suite.Require().NoError(err, "valid test %d failed - '%s'", i, tc.name)
 			} else {

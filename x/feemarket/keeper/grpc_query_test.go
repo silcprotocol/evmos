@@ -1,21 +1,13 @@
 package keeper_test
 
 import (
-	"testing"
-
 	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
-	"github.com/evmos/evmos/v20/x/feemarket/types"
-	"github.com/stretchr/testify/require"
+	ethparams "github.com/ethereum/go-ethereum/params"
+	"github.com/evmos/evmos/v12/x/feemarket/types"
 )
 
-func TestQueryParams(t *testing.T) {
-	var (
-		nw  *network.UnitTestNetwork
-		ctx sdk.Context
-	)
-
+func (suite *KeeperTestSuite) TestQueryParams() {
 	testCases := []struct {
 		name    string
 		expPass bool
@@ -26,32 +18,23 @@ func TestQueryParams(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// reset network and context
-			nw = network.NewUnitTestNetwork()
-			ctx = nw.GetContext()
-			qc := nw.GetFeeMarketClient()
+		params := suite.app.FeeMarketKeeper.GetParams(suite.ctx)
+		exp := &types.QueryParamsResponse{Params: params}
 
-			params := nw.App.FeeMarketKeeper.GetParams(ctx)
-			exp := &types.QueryParamsResponse{Params: params}
-
-			res, err := qc.Params(ctx.Context(), &types.QueryParamsRequest{})
-			if tc.expPass {
-				require.Equal(t, exp, res, tc.name)
-				require.NoError(t, err)
-			} else {
-				require.Error(t, err)
-			}
-		})
+		res, err := suite.queryClient.Params(suite.ctx.Context(), &types.QueryParamsRequest{})
+		if tc.expPass {
+			suite.Require().Equal(exp, res, tc.name)
+			suite.Require().NoError(err)
+		} else {
+			suite.Require().Error(err)
+		}
 	}
 }
 
-func TestQueryBaseFee(t *testing.T) {
+func (suite *KeeperTestSuite) TestQueryBaseFee() {
 	var (
-		expRes         *types.QueryBaseFeeResponse
-		nw             *network.UnitTestNetwork
-		ctx            sdk.Context
-		initialBaseFee sdkmath.LegacyDec
+		aux    sdkmath.Int
+		expRes *types.QueryBaseFeeResponse
 	)
 
 	testCases := []struct {
@@ -62,6 +45,7 @@ func TestQueryBaseFee(t *testing.T) {
 		{
 			"pass - default Base Fee",
 			func() {
+				initialBaseFee := sdkmath.NewInt(ethparams.InitialBaseFee)
 				expRes = &types.QueryBaseFeeResponse{BaseFee: &initialBaseFee}
 			},
 			true,
@@ -69,41 +53,30 @@ func TestQueryBaseFee(t *testing.T) {
 		{
 			"pass - non-nil Base Fee",
 			func() {
-				baseFee := sdkmath.LegacyNewDec(1)
-				nw.App.FeeMarketKeeper.SetBaseFee(ctx, baseFee)
+				baseFee := sdk.OneInt().BigInt()
+				suite.app.FeeMarketKeeper.SetBaseFee(suite.ctx, baseFee)
 
-				expRes = &types.QueryBaseFeeResponse{BaseFee: &baseFee}
+				aux = sdkmath.NewIntFromBigInt(baseFee)
+				expRes = &types.QueryBaseFeeResponse{BaseFee: &aux}
 			},
 			true,
 		},
 	}
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// reset network and context
-			nw = network.NewUnitTestNetwork()
-			ctx = nw.GetContext()
-			qc := nw.GetFeeMarketClient()
-			initialBaseFee = nw.App.FeeMarketKeeper.GetBaseFee(ctx)
+		tc.malleate()
 
-			tc.malleate()
-
-			res, err := qc.BaseFee(ctx.Context(), &types.QueryBaseFeeRequest{})
-			if tc.expPass {
-				require.NotNil(t, res)
-				require.Equal(t, expRes, res, tc.name)
-				require.NoError(t, err)
-			} else {
-				require.Error(t, err)
-			}
-		})
+		res, err := suite.queryClient.BaseFee(suite.ctx.Context(), &types.QueryBaseFeeRequest{})
+		if tc.expPass {
+			suite.Require().NotNil(res)
+			suite.Require().Equal(expRes, res, tc.name)
+			suite.Require().NoError(err)
+		} else {
+			suite.Require().Error(err)
+		}
 	}
 }
 
-func TestQueryBlockGas(t *testing.T) {
-	var (
-		nw  *network.UnitTestNetwork
-		ctx sdk.Context
-	)
+func (suite *KeeperTestSuite) TestQueryBlockGas() {
 	testCases := []struct {
 		name    string
 		expPass bool
@@ -114,22 +87,15 @@ func TestQueryBlockGas(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// reset network and context
-			nw = network.NewUnitTestNetwork()
-			ctx = nw.GetContext()
-			qc := nw.GetFeeMarketClient()
+		gas := suite.app.FeeMarketKeeper.GetBlockGasWanted(suite.ctx)
+		exp := &types.QueryBlockGasResponse{Gas: int64(gas)}
 
-			gas := nw.App.FeeMarketKeeper.GetBlockGasWanted(ctx)
-			exp := &types.QueryBlockGasResponse{Gas: int64(gas)} //#nosec G115
-
-			res, err := qc.BlockGas(ctx.Context(), &types.QueryBlockGasRequest{})
-			if tc.expPass {
-				require.Equal(t, exp, res, tc.name)
-				require.NoError(t, err)
-			} else {
-				require.Error(t, err)
-			}
-		})
+		res, err := suite.queryClient.BlockGas(suite.ctx.Context(), &types.QueryBlockGasRequest{})
+		if tc.expPass {
+			suite.Require().Equal(exp, res, tc.name)
+			suite.Require().NoError(err)
+		} else {
+			suite.Require().Error(err)
+		}
 	}
 }

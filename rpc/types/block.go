@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package types
 
 import (
@@ -19,7 +32,7 @@ import (
 
 	grpctypes "github.com/cosmos/cosmos-sdk/types/grpc"
 
-	"github.com/evmos/evmos/v20/types"
+	"github.com/evmos/evmos/v12/types"
 )
 
 // BlockNumber represents decoding hex string to block values
@@ -51,7 +64,7 @@ func NewBlockNumber(n *big.Int) BlockNumber {
 
 // ContextWithHeight wraps a context with the a gRPC block height header. If the provided height is
 // 0, it will return an empty context and the gRPC query will use the latest block height for querying.
-// Note that all metadata is processed and removed by the CometBFT layer, so it won't be accessible at gRPC server level.
+// Note that all metadata are processed and removed by tendermint layer, so it wont be accessible at gRPC server level.
 func ContextWithHeight(height int64) context.Context {
 	if height == 0 {
 		return context.Background()
@@ -94,7 +107,7 @@ func (bn *BlockNumber) UnmarshalJSON(data []byte) error {
 	if blckNum > math.MaxInt64 {
 		return fmt.Errorf("block number larger than int64")
 	}
-	*bn = BlockNumber(blckNum) // #nosec G701 G115
+	*bn = BlockNumber(blckNum) // #nosec G701
 
 	return nil
 }

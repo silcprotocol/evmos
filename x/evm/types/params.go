@@ -1,107 +1,90 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package types
 
 import (
 	"fmt"
 	"math/big"
-	"slices"
 
-	errorsmod "cosmossdk.io/errors"
-	channeltypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/v8/modules/core/24-host"
-
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/evmos/evmos/v20/types"
-	"github.com/evmos/evmos/v20/x/evm/core/vm"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	"github.com/evmos/evmos/v12/utils"
 )
 
 var (
+	// DefaultEVMDenom defines the default EVM denomination on Evmos
+	DefaultEVMDenom = utils.BaseDenom
 	// DefaultAllowUnprotectedTxs rejects all unprotected txs (i.e false)
 	DefaultAllowUnprotectedTxs = false
-	// DefaultStaticPrecompiles defines the default active precompiles
-	DefaultStaticPrecompiles = []string{
-		P256PrecompileAddress,         // P256 precompile
-		Bech32PrecompileAddress,       // Bech32 precompile
-		StakingPrecompileAddress,      // Staking precompile
-		DistributionPrecompileAddress, // Distribution precompile
-		ICS20PrecompileAddress,        // ICS20 transfer precompile
-		VestingPrecompileAddress,      // Vesting precompile
-		BankPrecompileAddress,         // Bank precompile
-		GovPrecompileAddress,          // Gov precompile
-	}
-	// DefaultExtraEIPs defines the default extra EIPs to be included
-	// On v15, EIP 3855 was enabled
-	DefaultExtraEIPs   = []string{"ethereum_3855"}
-	DefaultEVMChannels = []string{
-		"channel-10", // Injective
-		"channel-31", // Cronos
-		"channel-83", // Kava
-	}
-	DefaultCreateAllowlistAddresses []string
-	DefaultCallAllowlistAddresses   []string
-	DefaultAccessControl            = AccessControl{
-		Create: AccessControlType{
-			AccessType:        AccessTypePermissionless,
-			AccessControlList: DefaultCreateAllowlistAddresses,
-		},
-		Call: AccessControlType{
-			AccessType:        AccessTypePermissionless,
-			AccessControlList: DefaultCreateAllowlistAddresses,
-		},
-	}
+	// DefaultEnableCreate enables contract creation (i.e true)
+	DefaultEnableCreate = true
+	// DefaultEnableCall enables contract calls (i.e true)
+	DefaultEnableCall = true
 )
 
+// AvailableExtraEIPs define the list of all EIPs that can be enabled by the
+// EVM interpreter. These EIPs are applied in order and can override the
+// instruction sets from the latest hard fork enabled by the ChainConfig. For
+// more info check:
+// https://github.com/ethereum/go-ethereum/blob/master/core/vm/interpreter.go#L97
+var AvailableExtraEIPs = []int64{1344, 1884, 2200, 2929, 3198, 3529}
+
 // NewParams creates a new Params instance
-func NewParams(
-	allowUnprotectedTxs bool,
-	extraEIPs []string,
-	activeStaticPrecompiles,
-	evmChannels []string,
-	accessControl AccessControl,
-) Params {
+func NewParams(evmDenom string, allowUnprotectedTxs, enableCreate, enableCall bool, config ChainConfig, extraEIPs []int64) Params {
 	return Params{
-		AllowUnprotectedTxs:     allowUnprotectedTxs,
-		ExtraEIPs:               extraEIPs,
-		ActiveStaticPrecompiles: activeStaticPrecompiles,
-		EVMChannels:             evmChannels,
-		AccessControl:           accessControl,
+		EvmDenom:            evmDenom,
+		AllowUnprotectedTxs: allowUnprotectedTxs,
+		EnableCreate:        enableCreate,
+		EnableCall:          enableCall,
+		ExtraEIPs:           extraEIPs,
+		ChainConfig:         config,
 	}
 }
 
 // DefaultParams returns default evm parameters
+// ExtraEIPs is empty to prevent overriding the latest hard fork instruction set
 func DefaultParams() Params {
 	return Params{
-		ExtraEIPs:               DefaultExtraEIPs,
-		AllowUnprotectedTxs:     DefaultAllowUnprotectedTxs,
-		ActiveStaticPrecompiles: DefaultStaticPrecompiles,
-		EVMChannels:             DefaultEVMChannels,
-		AccessControl:           DefaultAccessControl,
+		EvmDenom:            DefaultEVMDenom,
+		EnableCreate:        DefaultEnableCreate,
+		EnableCall:          DefaultEnableCall,
+		ChainConfig:         DefaultChainConfig(),
+		ExtraEIPs:           nil,
+		AllowUnprotectedTxs: DefaultAllowUnprotectedTxs,
 	}
-}
-
-// validateChannels checks if channels ids are valid
-func validateChannels(i interface{}) error {
-	channels, ok := i.([]string)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	for _, channel := range channels {
-		if err := host.ChannelIdentifierValidator(channel); err != nil {
-			return errorsmod.Wrap(
-				channeltypes.ErrInvalidChannelIdentifier, err.Error(),
-			)
-		}
-	}
-
-	return nil
 }
 
 // Validate performs basic validation on evm parameters.
 func (p Params) Validate() error {
+	if err := validateEVMDenom(p.EvmDenom); err != nil {
+		return err
+	}
+
 	if err := validateEIPs(p.ExtraEIPs); err != nil {
+		return err
+	}
+
+	if err := validateBool(p.EnableCall); err != nil {
+		return err
+	}
+
+	if err := validateBool(p.EnableCreate); err != nil {
 		return err
 	}
 
@@ -109,89 +92,25 @@ func (p Params) Validate() error {
 		return err
 	}
 
-	if err := ValidatePrecompiles(p.ActiveStaticPrecompiles); err != nil {
-		return err
-	}
-
-	if err := p.AccessControl.Validate(); err != nil {
-		return err
-	}
-
-	return validateChannels(p.EVMChannels)
+	return validateChainConfig(p.ChainConfig)
 }
 
-// EIPs returns the ExtraEIPS as a slice.
-func (p Params) EIPs() []string {
-	eips := make([]string, len(p.ExtraEIPs))
-	copy(eips, p.ExtraEIPs)
+// EIPs returns the ExtraEIPS as a int slice
+func (p Params) EIPs() []int {
+	eips := make([]int, len(p.ExtraEIPs))
+	for i, eip := range p.ExtraEIPs {
+		eips[i] = int(eip)
+	}
 	return eips
 }
 
-// GetActiveStaticPrecompilesAddrs is a util function that the Active Precompiles
-// as a slice of addresses.
-func (p Params) GetActiveStaticPrecompilesAddrs() []common.Address {
-	precompiles := make([]common.Address, len(p.ActiveStaticPrecompiles))
-	for i, precompile := range p.ActiveStaticPrecompiles {
-		precompiles[i] = common.HexToAddress(precompile)
-	}
-	return precompiles
-}
-
-// IsEVMChannel returns true if the channel provided is in the list of
-// EVM channels
-func (p Params) IsEVMChannel(channel string) bool {
-	return slices.Contains(p.EVMChannels, channel)
-}
-
-func (ac AccessControl) Validate() error {
-	if err := ac.Create.Validate(); err != nil {
-		return err
-	}
-
-	if err := ac.Call.Validate(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (act AccessControlType) Validate() error {
-	if err := validateAccessType(act.AccessType); err != nil {
-		return err
-	}
-
-	if err := validateAllowlistAddresses(act.AccessControlList); err != nil {
-		return err
-	}
-	return nil
-}
-
-func validateAccessType(i interface{}) error {
-	accessType, ok := i.(AccessType)
+func validateEVMDenom(i interface{}) error {
+	denom, ok := i.(string)
 	if !ok {
-		return fmt.Errorf("invalid access type type: %T", i)
+		return fmt.Errorf("invalid parameter EVM denom type: %T", i)
 	}
 
-	switch accessType {
-	case AccessTypePermissionless, AccessTypeRestricted, AccessTypePermissioned:
-		return nil
-	default:
-		return fmt.Errorf("invalid access type: %s", accessType)
-	}
-}
-
-func validateAllowlistAddresses(i interface{}) error {
-	addresses, ok := i.([]string)
-	if !ok {
-		return fmt.Errorf("invalid whitelist addresses type: %T", i)
-	}
-
-	for _, address := range addresses {
-		if err := types.ValidateAddress(address); err != nil {
-			return fmt.Errorf("invalid whitelist address: %s", address)
-		}
-	}
-	return nil
+	return sdk.ValidateDenom(denom)
 }
 
 func validateBool(i interface{}) error {
@@ -203,59 +122,27 @@ func validateBool(i interface{}) error {
 }
 
 func validateEIPs(i interface{}) error {
-	eips, ok := i.([]string)
+	eips, ok := i.([]int64)
 	if !ok {
 		return fmt.Errorf("invalid EIP slice type: %T", i)
 	}
 
-	uniqueEIPs := make(map[string]struct{})
-
 	for _, eip := range eips {
-		if !vm.ExistsEipActivator(eip) {
-			return fmt.Errorf("EIP %s is not activateable, valid EIPs are: %s", eip, vm.ActivateableEips())
+		if !vm.ValidEip(int(eip)) {
+			return fmt.Errorf("EIP %d is not activateable, valid EIPS are: %s", eip, vm.ActivateableEips())
 		}
-
-		if err := vm.ValidateEIPName(eip); err != nil {
-			return fmt.Errorf("EIP %s name is not valid", eip)
-		}
-
-		if _, ok := uniqueEIPs[eip]; ok {
-			return fmt.Errorf("found duplicate EIP: %s", eip)
-		}
-		uniqueEIPs[eip] = struct{}{}
-
 	}
 
 	return nil
 }
 
-// ValidatePrecompiles checks if the precompile addresses are valid and unique.
-func ValidatePrecompiles(i interface{}) error {
-	precompiles, ok := i.([]string)
+func validateChainConfig(i interface{}) error {
+	cfg, ok := i.(ChainConfig)
 	if !ok {
-		return fmt.Errorf("invalid precompile slice type: %T", i)
+		return fmt.Errorf("invalid chain config type: %T", i)
 	}
 
-	seenPrecompiles := make(map[string]struct{})
-	for _, precompile := range precompiles {
-		if _, ok := seenPrecompiles[precompile]; ok {
-			return fmt.Errorf("duplicate precompile %s", precompile)
-		}
-
-		if err := types.ValidateAddress(precompile); err != nil {
-			return fmt.Errorf("invalid precompile %s", precompile)
-		}
-
-		seenPrecompiles[precompile] = struct{}{}
-	}
-
-	// NOTE: Check that the precompiles are sorted. This is required
-	// to ensure determinism
-	if !slices.IsSorted(precompiles) {
-		return fmt.Errorf("precompiles need to be sorted: %s", precompiles)
-	}
-
-	return nil
+	return cfg.Validate()
 }
 
 // IsLondon returns if london hardfork is enabled.

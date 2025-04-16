@@ -8,9 +8,10 @@ import (
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
-	"github.com/evmos/evmos/v20/encoding"
-	utiltx "github.com/evmos/evmos/v20/testutil/tx"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/encoding"
+	utiltx "github.com/evmos/evmos/v12/testutil/tx"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 func TestTxEncoding(t *testing.T) {
@@ -33,15 +34,15 @@ func TestTxEncoding(t *testing.T) {
 	err := msg.Sign(ethSigner, signer)
 	require.NoError(t, err)
 
-	cfg := encoding.MakeConfig()
+	cfg := encoding.MakeConfig(app.ModuleBasics)
 
 	_, err = cfg.TxConfig.TxEncoder()(msg)
 	require.Error(t, err, "encoding failed")
 
 	// FIXME: transaction hashing is hardcoded on Tendermint:
-	// See https://github.com/cometbft/cometbft/issues/6539 for reference
+	// See https://github.com/tendermint/tendermint/issues/6539 for reference
 	// txHash := msg.AsTransaction().Hash()
-	// tmTx := cmttypes.Tx(bz)
+	// tmTx := tmtypes.Tx(bz)
 
 	// require.Equal(t, txHash.Bytes(), tmTx.Hash())
 }

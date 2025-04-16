@@ -8,26 +8,25 @@ import (
 	"cosmossdk.io/math"
 
 	"github.com/cosmos/cosmos-sdk/client"
+	chainparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
-	"github.com/evmos/evmos/v20/ethereum/eip712"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
-
+	"github.com/evmos/evmos/v12/ethereum/eip712"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/evmos/evmos/v20/crypto/ethsecp256k1"
+	"github.com/evmos/evmos/v12/crypto/ethsecp256k1"
 
-	sdktestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
 	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/evmos/evmos/v20/cmd/config"
-	"github.com/evmos/evmos/v20/utils"
+	"github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/cmd/config"
+	"github.com/evmos/evmos/v12/encoding"
+	"github.com/evmos/evmos/v12/utils"
 
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	govtypesv1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
@@ -46,7 +45,7 @@ const (
 type EIP712TestSuite struct {
 	suite.Suite
 
-	config                   sdktestutil.TestEncodingConfig
+	config                   chainparams.EncodingConfig
 	clientCtx                client.Context
 	useLegacyEIP712TypedData bool
 	denom                    string
@@ -70,12 +69,12 @@ func TestEIP712TestSuite(t *testing.T) {
 }
 
 func (suite *EIP712TestSuite) SetupTest() {
-	nw := network.New()
-	suite.config = nw.GetEncodingConfig()
+	suite.config = encoding.MakeConfig(app.ModuleBasics)
 	suite.clientCtx = client.Context{}.WithTxConfig(suite.config.TxConfig)
-	suite.denom = evmtypes.GetEVMCoinDenom()
+	suite.denom = utils.BaseDenom
 
 	sdk.GetConfig().SetBech32PrefixForAccount(config.Bech32Prefix, "")
+	eip712.SetEncodingConfig(suite.config)
 }
 
 // createTestAddress creates random test addresses for messages
@@ -164,8 +163,8 @@ func (suite *EIP712TestSuite) TestEIP712() {
 			title: "Succeeds - Standard MsgDelegate",
 			msgs: []sdk.Msg{
 				stakingtypes.NewMsgDelegate(
-					suite.createTestAddress().String(),
-					sdk.ValAddress(suite.createTestAddress()).String(),
+					suite.createTestAddress(),
+					sdk.ValAddress(suite.createTestAddress()),
 					suite.makeCoins(suite.denom, math.NewInt(1))[0],
 				),
 			},
@@ -175,8 +174,8 @@ func (suite *EIP712TestSuite) TestEIP712() {
 			title: "Succeeds - Standard MsgWithdrawDelegationReward",
 			msgs: []sdk.Msg{
 				distributiontypes.NewMsgWithdrawDelegatorReward(
-					suite.createTestAddress().String(),
-					sdk.ValAddress(suite.createTestAddress()).String(),
+					suite.createTestAddress(),
+					sdk.ValAddress(suite.createTestAddress()),
 				),
 			},
 			expectSuccess: true,
@@ -185,13 +184,13 @@ func (suite *EIP712TestSuite) TestEIP712() {
 			title: "Succeeds - Two Single-Signer MsgDelegate",
 			msgs: []sdk.Msg{
 				stakingtypes.NewMsgDelegate(
-					params.address.String(),
-					sdk.ValAddress(suite.createTestAddress()).String(),
+					params.address,
+					sdk.ValAddress(suite.createTestAddress()),
 					suite.makeCoins(suite.denom, math.NewInt(1))[0],
 				),
 				stakingtypes.NewMsgDelegate(
-					params.address.String(),
-					sdk.ValAddress(suite.createTestAddress()).String(),
+					params.address,
+					sdk.ValAddress(suite.createTestAddress()),
 					suite.makeCoins(suite.denom, math.NewInt(5))[0],
 				),
 			},
@@ -291,8 +290,8 @@ func (suite *EIP712TestSuite) TestEIP712() {
 		{
 			title: "Fails - Single Message / Multi-Signer",
 			msgs: []sdk.Msg{
-				&banktypes.MsgMultiSend{
-					Inputs: []banktypes.Input{
+				banktypes.NewMsgMultiSend(
+					[]banktypes.Input{
 						banktypes.NewInput(
 							suite.createTestAddress(),
 							suite.makeCoins(suite.denom, math.NewInt(50)),
@@ -302,7 +301,7 @@ func (suite *EIP712TestSuite) TestEIP712() {
 							suite.makeCoins(suite.denom, math.NewInt(50)),
 						),
 					},
-					Outputs: []banktypes.Output{
+					[]banktypes.Output{
 						banktypes.NewOutput(
 							suite.createTestAddress(),
 							suite.makeCoins(suite.denom, math.NewInt(50)),
@@ -312,7 +311,7 @@ func (suite *EIP712TestSuite) TestEIP712() {
 							suite.makeCoins(suite.denom, math.NewInt(50)),
 						),
 					},
-				},
+				),
 			},
 			expectSuccess: false,
 		},
@@ -364,9 +363,7 @@ func (suite *EIP712TestSuite) TestEIP712() {
 					Address:       sdk.MustBech32ifyAddressBytes(config.Bech32Prefix, pubKey.Bytes()),
 				}
 
-				bz, err := authsigning.GetSignBytesAdapter(
-					suite.clientCtx.CmdContext,
-					suite.clientCtx.TxConfig.SignModeHandler(),
+				bz, err := suite.clientCtx.TxConfig.SignModeHandler().GetSignBytes(
 					signMode,
 					signerData,
 					txBuilder.GetTx(),
@@ -454,20 +451,17 @@ func (suite *EIP712TestSuite) verifyPayloadMapAgainstFlattenedMap(original map[s
 	suite.Require().True(ok)
 
 	messages, ok := interfaceMessages.([]interface{})
-	// If passing an empty msgs array
-	// the interfaceMessages is nil
-	// in that case, don't try to iterate the messages
-	if ok {
-		// Verify message contents
-		for i, msg := range messages {
-			flattenedMsg, ok := flattened[fmt.Sprintf("msg%d", i)]
-			suite.Require().True(ok)
+	suite.Require().True(ok)
 
-			flattenedMsgJSON, ok := flattenedMsg.(map[string]interface{})
-			suite.Require().True(ok)
+	// Verify message contents
+	for i, msg := range messages {
+		flattenedMsg, ok := flattened[fmt.Sprintf("msg%d", i)]
+		suite.Require().True(ok)
 
-			suite.Require().Equal(flattenedMsgJSON, msg)
-		}
+		flattenedMsgJSON, ok := flattenedMsg.(map[string]interface{})
+		suite.Require().True(ok)
+
+		suite.Require().Equal(flattenedMsgJSON, msg)
 	}
 
 	// Verify new payload does not have msgs field

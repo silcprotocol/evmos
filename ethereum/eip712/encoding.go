@@ -1,19 +1,32 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package eip712
 
 import (
 	"errors"
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/cosmos/cosmos-sdk/x/auth/migrations/legacytx"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	txTypes "github.com/cosmos/cosmos-sdk/types/tx"
 
 	apitypes "github.com/ethereum/go-ethereum/signer/core/apitypes"
-	evmostypes "github.com/evmos/evmos/v20/types"
+	evmostypes "github.com/evmos/evmos/v12/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 )
@@ -27,9 +40,9 @@ var (
 // The process of unmarshaling SignDoc bytes into a SignDoc object requires having a codec
 // populated with all relevant message types. As a result, we must call this method on app
 // initialization with the app's encoding config.
-func SetEncodingConfig(cdc *codec.LegacyAmino, interfaceRegistry types.InterfaceRegistry) {
-	aminoCodec = cdc
-	protoCodec = codec.NewProtoCodec(interfaceRegistry)
+func SetEncodingConfig(cfg params.EncodingConfig) {
+	aminoCodec = cfg.Amino
+	protoCodec = codec.NewProtoCodec(cfg.InterfaceRegistry)
 }
 
 // GetEIP712BytesForMsg returns the EIP-712 object bytes for the given SignDoc bytes by decoding the bytes into
@@ -177,6 +190,8 @@ func decodeProtobufSignDoc(signDocBytes []byte) (apitypes.TypedData, error) {
 		Gas:    authInfo.Fee.GasLimit,
 	}
 
+	tip := authInfo.Tip
+
 	// WrapTxToTypedData expects the payload as an Amino Sign Doc
 	signBytes := legacytx.StdSignBytes(
 		signDoc.ChainId,
@@ -186,6 +201,7 @@ func decodeProtobufSignDoc(signDocBytes []byte) (apitypes.TypedData, error) {
 		*stdFee,
 		msgs,
 		body.Memo,
+		tip,
 	)
 
 	typedData, err := WrapTxToTypedData(
@@ -219,20 +235,16 @@ func validatePayloadMessages(msgs []sdk.Msg) error {
 	var msgSigner sdk.AccAddress
 
 	for i, m := range msgs {
-		signers, _, err := protoCodec.GetMsgV1Signers(m)
-		if err != nil {
-			return fmt.Errorf("error getting signers. %w", err)
-		}
-		if len(signers) != 1 {
+		if len(m.GetSigners()) != 1 {
 			return errors.New("unable to build EIP-712 payload: expect exactly 1 signer")
 		}
 
 		if i == 0 {
-			msgSigner = signers[0]
+			msgSigner = m.GetSigners()[0]
 			continue
 		}
 
-		if !msgSigner.Equals(sdk.AccAddress(signers[0])) {
+		if !msgSigner.Equals(m.GetSigners()[0]) {
 			return errors.New("unable to build EIP-712 payload: multiple signers detected")
 		}
 	}

@@ -4,18 +4,15 @@ import (
 	"fmt"
 	"math/big"
 
-	"cosmossdk.io/math"
-	tmrpcclient "github.com/cometbft/cometbft/rpc/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/evmos/evmos/v20/crypto/ethsecp256k1"
-	"github.com/evmos/evmos/v20/rpc/backend/mocks"
-	"github.com/evmos/evmos/v20/server/config"
-	"github.com/evmos/evmos/v20/types"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/crypto/ethsecp256k1"
+	"github.com/evmos/evmos/v12/rpc/backend/mocks"
+	"github.com/evmos/evmos/v12/types"
 	"github.com/spf13/viper"
+	tmrpcclient "github.com/tendermint/tendermint/rpc/client"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -23,21 +20,25 @@ func (suite *BackendTestSuite) TestRPCMinGasPrice() {
 	testCases := []struct {
 		name           string
 		registerMock   func()
-		expMinGasPrice *big.Int
+		expMinGasPrice int64
 		expPass        bool
 	}{
 		{
 			"pass - default gas price",
 			func() {
+				queryClient := suite.backend.queryClient.QueryClient.(*mocks.EVMQueryClient)
+				RegisterParamsWithoutHeaderError(queryClient, 1)
 			},
-			big.NewInt(types.DefaultGasPrice),
+			types.DefaultGasPrice,
 			true,
 		},
 		{
 			"pass - min gas price is 0",
 			func() {
+				queryClient := suite.backend.queryClient.QueryClient.(*mocks.EVMQueryClient)
+				RegisterParamsWithoutHeader(queryClient, 1)
 			},
-			big.NewInt(types.DefaultGasPrice),
+			types.DefaultGasPrice,
 			true,
 		},
 	}
@@ -57,44 +58,39 @@ func (suite *BackendTestSuite) TestRPCMinGasPrice() {
 	}
 }
 
-func (suite *BackendTestSuite) TestGenerateMinGasCoin() {
+func (suite *BackendTestSuite) TestSetGasPrice() {
 	defaultGasPrice := (*hexutil.Big)(big.NewInt(1))
 	testCases := []struct {
-		name           string
-		gasPrice       hexutil.Big
-		minGas         sdk.DecCoins
-		expectedOutput sdk.DecCoin
+		name         string
+		registerMock func()
+		gasPrice     hexutil.Big
+		expOutput    bool
 	}{
 		{
-			"pass - empty min gas Coins (default denom)",
-			*defaultGasPrice,
-			sdk.DecCoins{},
-			sdk.DecCoin{
-				Denom:  evmtypes.GetEVMCoinDenom(),
-				Amount: math.LegacyNewDecFromBigInt(defaultGasPrice.ToInt()),
+			"pass - cannot get server config",
+			func() {
+				suite.backend.clientCtx.Viper = viper.New()
 			},
+			*defaultGasPrice,
+			false,
 		},
 		{
-			"pass - different min gas Coin",
-			*defaultGasPrice,
-			sdk.DecCoins{sdk.NewDecCoin("test", math.NewInt(1))},
-			sdk.DecCoin{
-				Denom:  "test",
-				Amount: math.LegacyNewDecFromBigInt(defaultGasPrice.ToInt()),
+			"pass - cannot find coin denom",
+			func() {
+				suite.backend.clientCtx.Viper = viper.New()
+				suite.backend.clientCtx.Viper.Set("telemetry.global-labels", []interface{}{})
 			},
+			*defaultGasPrice,
+			false,
 		},
 	}
 
 	for _, tc := range testCases {
 		suite.Run(fmt.Sprintf("case %s", tc.name), func() {
 			suite.SetupTest() // reset test and queries
-			suite.backend.clientCtx.Viper = viper.New()
-
-			appConf := config.DefaultConfig()
-			appConf.SetMinGasPrices(tc.minGas)
-
-			output := suite.backend.GenerateMinGasCoin(tc.gasPrice, *appConf)
-			suite.Require().Equal(tc.expectedOutput, output)
+			tc.registerMock()
+			output := suite.backend.SetGasPrice(tc.gasPrice)
+			suite.Require().Equal(tc.expOutput, output)
 		})
 	}
 }
@@ -258,7 +254,7 @@ func (suite *BackendTestSuite) TestSetEtherbase() {
 				RegisterStatus(client)
 				RegisterValidatorAccount(queryClient, suite.acc)
 				RegisterParams(queryClient, &header, 1)
-				c := sdk.NewDecCoin(types.BaseDenom, math.NewIntFromBigInt(big.NewInt(1)))
+				c := sdk.NewDecCoin(types.AttoEvmos, sdk.NewIntFromBigInt(big.NewInt(1)))
 				suite.backend.cfg.SetMinGasPrices(sdk.DecCoins{c})
 				delAddr, _ := suite.backend.GetCoinbase()
 				// account, _ := suite.backend.clientCtx.AccountRetriever.GetAccount(suite.backend.clientCtx, delAddr)
@@ -283,7 +279,7 @@ func (suite *BackendTestSuite) TestSetEtherbase() {
 		//		queryClient := suite.backend.queryClient.QueryClient.(*mocks.EVMQueryClient)
 		//		RegisterStatus(client)
 		//		RegisterValidatorAccount(queryClient, suite.acc)
-		//		c := sdk.NewDecCoin(types.AttoEvmos, math.NewIntFromBigInt(big.NewInt(1)))
+		//		c := sdk.NewDecCoin(types.AttoEvmos, sdk.NewIntFromBigInt(big.NewInt(1)))
 		//		suite.backend.cfg.SetMinGasPrices(sdk.DecCoins{c})
 		//		delAddr, _ := suite.backend.GetCoinbase()
 		//		account, _ := suite.backend.clientCtx.AccountRetriever.GetAccount(suite.backend.clientCtx, delAddr)

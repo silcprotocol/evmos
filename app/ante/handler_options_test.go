@@ -1,18 +1,15 @@
 package ante_test
 
 import (
-	"testing"
+	ethante "github.com/evmos/evmos/v12/app/ante/evm"
+	"github.com/evmos/evmos/v12/encoding"
+	"github.com/evmos/evmos/v12/types"
 
-	ethante "github.com/evmos/evmos/v20/app/ante/evm"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
-	"github.com/evmos/evmos/v20/types"
-	"github.com/stretchr/testify/require"
-
-	"github.com/evmos/evmos/v20/app/ante"
+	"github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/app/ante"
 )
 
-func TestValidateHandlerOptions(t *testing.T) {
-	nw := network.NewUnitTestNetwork()
+func (suite *AnteTestSuite) TestValidateHandlerOptions() {
 	cases := []struct {
 		name    string
 		options ante.HandlerOptions
@@ -26,7 +23,7 @@ func TestValidateHandlerOptions(t *testing.T) {
 		{
 			"fail - empty account keeper",
 			ante.HandlerOptions{
-				Cdc:           nw.App.AppCodec(),
+				Cdc:           suite.app.AppCodec(),
 				AccountKeeper: nil,
 			},
 			false,
@@ -34,8 +31,8 @@ func TestValidateHandlerOptions(t *testing.T) {
 		{
 			"fail - empty bank keeper",
 			ante.HandlerOptions{
-				Cdc:           nw.App.AppCodec(),
-				AccountKeeper: nw.App.AccountKeeper,
+				Cdc:           suite.app.AppCodec(),
+				AccountKeeper: suite.app.AccountKeeper,
 				BankKeeper:    nil,
 			},
 			false,
@@ -43,9 +40,9 @@ func TestValidateHandlerOptions(t *testing.T) {
 		{
 			"fail - empty distribution keeper",
 			ante.HandlerOptions{
-				Cdc:                nw.App.AppCodec(),
-				AccountKeeper:      nw.App.AccountKeeper,
-				BankKeeper:         nw.App.BankKeeper,
+				Cdc:                suite.app.AppCodec(),
+				AccountKeeper:      suite.app.AccountKeeper,
+				BankKeeper:         suite.app.BankKeeper,
 				DistributionKeeper: nil,
 
 				IBCKeeper: nil,
@@ -55,10 +52,10 @@ func TestValidateHandlerOptions(t *testing.T) {
 		{
 			"fail - empty IBC keeper",
 			ante.HandlerOptions{
-				Cdc:                nw.App.AppCodec(),
-				AccountKeeper:      nw.App.AccountKeeper,
-				BankKeeper:         nw.App.BankKeeper,
-				DistributionKeeper: nw.App.DistrKeeper,
+				Cdc:                suite.app.AppCodec(),
+				AccountKeeper:      suite.app.AccountKeeper,
+				BankKeeper:         suite.app.BankKeeper,
+				DistributionKeeper: suite.app.DistrKeeper,
 
 				IBCKeeper: nil,
 			},
@@ -67,12 +64,12 @@ func TestValidateHandlerOptions(t *testing.T) {
 		{
 			"fail - empty staking keeper",
 			ante.HandlerOptions{
-				Cdc:                nw.App.AppCodec(),
-				AccountKeeper:      nw.App.AccountKeeper,
-				BankKeeper:         nw.App.BankKeeper,
-				DistributionKeeper: nw.App.DistrKeeper,
+				Cdc:                suite.app.AppCodec(),
+				AccountKeeper:      suite.app.AccountKeeper,
+				BankKeeper:         suite.app.BankKeeper,
+				DistributionKeeper: suite.app.DistrKeeper,
 
-				IBCKeeper:     nw.App.IBCKeeper,
+				IBCKeeper:     suite.app.IBCKeeper,
 				StakingKeeper: nil,
 			},
 			false,
@@ -80,13 +77,13 @@ func TestValidateHandlerOptions(t *testing.T) {
 		{
 			"fail - empty fee market keeper",
 			ante.HandlerOptions{
-				Cdc:                nw.App.AppCodec(),
-				AccountKeeper:      nw.App.AccountKeeper,
-				BankKeeper:         nw.App.BankKeeper,
-				DistributionKeeper: nw.App.DistrKeeper,
+				Cdc:                suite.app.AppCodec(),
+				AccountKeeper:      suite.app.AccountKeeper,
+				BankKeeper:         suite.app.BankKeeper,
+				DistributionKeeper: suite.app.DistrKeeper,
 
-				IBCKeeper:       nw.App.IBCKeeper,
-				StakingKeeper:   nw.App.StakingKeeper,
+				IBCKeeper:       suite.app.IBCKeeper,
+				StakingKeeper:   suite.app.StakingKeeper,
 				FeeMarketKeeper: nil,
 			},
 			false,
@@ -94,13 +91,13 @@ func TestValidateHandlerOptions(t *testing.T) {
 		{
 			"fail - empty EVM keeper",
 			ante.HandlerOptions{
-				Cdc:                nw.App.AppCodec(),
-				AccountKeeper:      nw.App.AccountKeeper,
-				BankKeeper:         nw.App.BankKeeper,
-				DistributionKeeper: nw.App.DistrKeeper,
-				IBCKeeper:          nw.App.IBCKeeper,
-				StakingKeeper:      nw.App.StakingKeeper,
-				FeeMarketKeeper:    nw.App.FeeMarketKeeper,
+				Cdc:                suite.app.AppCodec(),
+				AccountKeeper:      suite.app.AccountKeeper,
+				BankKeeper:         suite.app.BankKeeper,
+				DistributionKeeper: suite.app.DistrKeeper,
+				IBCKeeper:          suite.app.IBCKeeper,
+				StakingKeeper:      suite.app.StakingKeeper,
+				FeeMarketKeeper:    suite.app.FeeMarketKeeper,
 				EvmKeeper:          nil,
 			},
 			false,
@@ -108,14 +105,14 @@ func TestValidateHandlerOptions(t *testing.T) {
 		{
 			"fail - empty signature gas consumer",
 			ante.HandlerOptions{
-				Cdc:                nw.App.AppCodec(),
-				AccountKeeper:      nw.App.AccountKeeper,
-				BankKeeper:         nw.App.BankKeeper,
-				DistributionKeeper: nw.App.DistrKeeper,
-				IBCKeeper:          nw.App.IBCKeeper,
-				StakingKeeper:      nw.App.StakingKeeper,
-				FeeMarketKeeper:    nw.App.FeeMarketKeeper,
-				EvmKeeper:          nw.App.EvmKeeper,
+				Cdc:                suite.app.AppCodec(),
+				AccountKeeper:      suite.app.AccountKeeper,
+				BankKeeper:         suite.app.BankKeeper,
+				DistributionKeeper: suite.app.DistrKeeper,
+				IBCKeeper:          suite.app.IBCKeeper,
+				StakingKeeper:      suite.app.StakingKeeper,
+				FeeMarketKeeper:    suite.app.FeeMarketKeeper,
+				EvmKeeper:          suite.app.EvmKeeper,
 				SigGasConsumer:     nil,
 			},
 			false,
@@ -123,53 +120,36 @@ func TestValidateHandlerOptions(t *testing.T) {
 		{
 			"fail - empty signature mode handler",
 			ante.HandlerOptions{
-				Cdc:                nw.App.AppCodec(),
-				AccountKeeper:      nw.App.AccountKeeper,
-				BankKeeper:         nw.App.BankKeeper,
-				DistributionKeeper: nw.App.DistrKeeper,
-				IBCKeeper:          nw.App.IBCKeeper,
-				StakingKeeper:      nw.App.StakingKeeper,
-				FeeMarketKeeper:    nw.App.FeeMarketKeeper,
-				EvmKeeper:          nw.App.EvmKeeper,
+				Cdc:                suite.app.AppCodec(),
+				AccountKeeper:      suite.app.AccountKeeper,
+				BankKeeper:         suite.app.BankKeeper,
+				DistributionKeeper: suite.app.DistrKeeper,
+				IBCKeeper:          suite.app.IBCKeeper,
+				StakingKeeper:      suite.app.StakingKeeper,
+				FeeMarketKeeper:    suite.app.FeeMarketKeeper,
+				EvmKeeper:          suite.app.EvmKeeper,
 				SigGasConsumer:     ante.SigVerificationGasConsumer,
 				SignModeHandler:    nil,
 			},
 			false,
 		},
 		{
-			"fail - empty tx fee checker",
-			ante.HandlerOptions{
-				Cdc:                nw.App.AppCodec(),
-				AccountKeeper:      nw.App.AccountKeeper,
-				BankKeeper:         nw.App.BankKeeper,
-				DistributionKeeper: nw.App.DistrKeeper,
-				IBCKeeper:          nw.App.IBCKeeper,
-				StakingKeeper:      nw.App.StakingKeeper,
-				FeeMarketKeeper:    nw.App.FeeMarketKeeper,
-				EvmKeeper:          nw.App.EvmKeeper,
-				SigGasConsumer:     ante.SigVerificationGasConsumer,
-				SignModeHandler:    nw.App.GetTxConfig().SignModeHandler(),
-				TxFeeChecker:       nil,
-			},
-			false,
-		},
-		{
 			"success - default app options",
 			ante.HandlerOptions{
-				Cdc:                    nw.App.AppCodec(),
-				AccountKeeper:          nw.App.AccountKeeper,
-				BankKeeper:             nw.App.BankKeeper,
-				DistributionKeeper:     nw.App.DistrKeeper,
+				Cdc:                    suite.app.AppCodec(),
+				AccountKeeper:          suite.app.AccountKeeper,
+				BankKeeper:             suite.app.BankKeeper,
+				DistributionKeeper:     suite.app.DistrKeeper,
 				ExtensionOptionChecker: types.HasDynamicFeeExtensionOption,
-				EvmKeeper:              nw.App.EvmKeeper,
-				StakingKeeper:          nw.App.StakingKeeper,
-				FeegrantKeeper:         nw.App.FeeGrantKeeper,
-				IBCKeeper:              nw.App.IBCKeeper,
-				FeeMarketKeeper:        nw.App.FeeMarketKeeper,
-				SignModeHandler:        nw.GetEncodingConfig().TxConfig.SignModeHandler(),
+				EvmKeeper:              suite.app.EvmKeeper,
+				StakingKeeper:          suite.app.StakingKeeper,
+				FeegrantKeeper:         suite.app.FeeGrantKeeper,
+				IBCKeeper:              suite.app.IBCKeeper,
+				FeeMarketKeeper:        suite.app.FeeMarketKeeper,
+				SignModeHandler:        encoding.MakeConfig(app.ModuleBasics).TxConfig.SignModeHandler(),
 				SigGasConsumer:         ante.SigVerificationGasConsumer,
 				MaxTxGasWanted:         40000000,
-				TxFeeChecker:           ethante.NewDynamicFeeChecker(nw.App.FeeMarketKeeper),
+				TxFeeChecker:           ethante.NewDynamicFeeChecker(suite.app.EvmKeeper),
 			},
 			true,
 		},
@@ -178,9 +158,9 @@ func TestValidateHandlerOptions(t *testing.T) {
 	for _, tc := range cases {
 		err := tc.options.Validate()
 		if tc.expPass {
-			require.NoError(t, err, tc.name)
+			suite.Require().NoError(err, tc.name)
 		} else {
-			require.Error(t, err, tc.name)
+			suite.Require().Error(err, tc.name)
 		}
 	}
 }

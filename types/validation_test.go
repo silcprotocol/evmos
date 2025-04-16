@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	utiltx "github.com/evmos/evmos/v20/testutil/tx"
-	"github.com/evmos/evmos/v20/types"
+	utiltx "github.com/evmos/evmos/v12/testutil/tx"
+	"github.com/evmos/evmos/v12/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -139,6 +139,6 @@ func TestSafeInt64(t *testing.T) {
 		}
 
 		require.NoError(t, err, tc.name)
-		require.Equal(t, int64(tc.value), value, tc.name) //#nosec G115
+		require.Equal(t, int64(tc.value), value, tc.name)
 	}
 }

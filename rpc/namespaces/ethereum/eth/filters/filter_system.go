@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package filters
 
 import (
@@ -10,12 +23,12 @@ import (
 
 	"github.com/pkg/errors"
 
-	"cosmossdk.io/log"
-	cmtjson "github.com/cometbft/cometbft/libs/json"
-	cmtquery "github.com/cometbft/cometbft/libs/pubsub/query"
-	coretypes "github.com/cometbft/cometbft/rpc/core/types"
-	rpcclient "github.com/cometbft/cometbft/rpc/jsonrpc/client"
-	cmttypes "github.com/cometbft/cometbft/types"
+	tmjson "github.com/tendermint/tendermint/libs/json"
+	"github.com/tendermint/tendermint/libs/log"
+	tmquery "github.com/tendermint/tendermint/libs/pubsub/query"
+	coretypes "github.com/tendermint/tendermint/rpc/core/types"
+	rpcclient "github.com/tendermint/tendermint/rpc/jsonrpc/client"
+	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -24,18 +37,18 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"github.com/evmos/evmos/v20/rpc/ethereum/pubsub"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/rpc/ethereum/pubsub"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 var (
-	txEvents  = cmttypes.QueryForEvent(cmttypes.EventTx).String()
-	evmEvents = cmtquery.MustCompile(fmt.Sprintf("%s='%s' AND %s.%s='%s'",
-		cmttypes.EventTypeKey,
-		cmttypes.EventTx,
+	txEvents  = tmtypes.QueryForEvent(tmtypes.EventTx).String()
+	evmEvents = tmquery.MustParse(fmt.Sprintf("%s='%s' AND %s.%s='%s'",
+		tmtypes.EventTypeKey,
+		tmtypes.EventTx,
 		sdk.EventTypeMessage,
 		sdk.AttributeKeyModule, evmtypes.ModuleName)).String()
-	headerEvents = cmttypes.QueryForEvent(cmttypes.EventNewBlockHeader).String()
+	headerEvents = tmtypes.QueryForEvent(tmtypes.EventNewBlockHeader).String()
 )
 
 // EventSystem creates subscriptions, processes events and broadcasts them to the
@@ -231,10 +244,9 @@ func (es *EventSystem) eventLoop() {
 			es.indexMux.Lock()
 			es.index[f.typ][f.id] = f
 			ch := make(chan coretypes.ResultEvent)
+			es.topicChans[f.event] = ch
 			if err := es.eventBus.AddTopic(f.event, ch); err != nil {
 				es.logger.Error("failed to add event topic to event bus", "topic", f.event, "error", err.Error())
-			} else {
-				es.topicChans[f.event] = ch
 			}
 			es.indexMux.Unlock()
 			close(f.installed)
@@ -279,7 +291,7 @@ func (es *EventSystem) consumeEvents() {
 			if rpcResp.Error != nil {
 				time.Sleep(5 * time.Second)
 				continue
-			} else if err := cmtjson.Unmarshal(rpcResp.Result, &ev); err != nil {
+			} else if err := tmjson.Unmarshal(rpcResp.Result, &ev); err != nil {
 				es.logger.Error("failed to JSON unmarshal ResponsesCh result event", "error", err.Error())
 				continue
 			}

@@ -1,27 +1,39 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package keeper
 
 import (
 	"math/big"
 
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/log"
-	"cosmossdk.io/math"
-	"cosmossdk.io/store/prefix"
-	storetypes "cosmossdk.io/store/types"
 	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/cosmos/cosmos-sdk/store/prefix"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/evmos/evmos/v20/x/evm/core/vm"
-	"github.com/evmos/evmos/v20/x/evm/wrappers"
+	"github.com/tendermint/tendermint/libs/log"
 
-	"github.com/evmos/evmos/v20/x/evm/statedb"
-	"github.com/evmos/evmos/v20/x/evm/types"
+	evmostypes "github.com/evmos/evmos/v12/types"
+	"github.com/evmos/evmos/v12/x/evm/statedb"
+	"github.com/evmos/evmos/v12/x/evm/types"
 )
 
 // Keeper grants access to the EVM module state and implements the go-ethereum StateDB interface.
@@ -40,31 +52,25 @@ type Keeper struct {
 
 	// the address capable of executing a MsgUpdateParams message. Typically, this should be the x/gov module account.
 	authority sdk.AccAddress
-
 	// access to account state
 	accountKeeper types.AccountKeeper
-
-	// bankWrapper is used to convert the Cosmos SDK coin used in the EVM to the
-	// proper decimal representation.
-	bankWrapper types.BankWrapper
-
+	// update balance and accounting operations with coins
+	bankKeeper types.BankKeeper
 	// access historical headers for EVM state transition execution
 	stakingKeeper types.StakingKeeper
 	// fetch EIP1559 base fee and parameters
-	feeMarketWrapper *wrappers.FeeMarketWrapper
-	// erc20Keeper interface needed to instantiate erc20 precompiles
-	erc20Keeper types.Erc20Keeper
+	feeMarketKeeper types.FeeMarketKeeper
+
+	// chain ID number obtained from the context's chain id
+	eip155ChainID *big.Int
 
 	// Tracer used to collect execution traces from the EVM transaction execution
 	tracer string
 
+	// EVM Hooks for tx post-processing
+	hooks types.EvmHooks
 	// Legacy subspace
 	ss paramstypes.Subspace
-
-	// precompiles defines the map of all available precompiled smart contracts.
-	// Some of these precompiled contracts might not be active depending on the EVM
-	// parameters.
-	precompiles map[common.Address]vm.PrecompiledContract
 }
 
 // NewKeeper generates new evm module keeper
@@ -76,7 +82,6 @@ func NewKeeper(
 	bankKeeper types.BankKeeper,
 	sk types.StakingKeeper,
 	fmk types.FeeMarketKeeper,
-	erc20Keeper types.Erc20Keeper,
 	tracer string,
 	ss paramstypes.Subspace,
 ) *Keeper {
@@ -90,28 +95,47 @@ func NewKeeper(
 		panic(err)
 	}
 
-	bankWrapper := wrappers.NewBankWrapper(bankKeeper)
-	feeMarketWrapper := wrappers.NewFeeMarketWrapper(fmk)
-
 	// NOTE: we pass in the parameter space to the CommitStateDB in order to use custom denominations for the EVM operations
 	return &Keeper{
-		cdc:              cdc,
-		authority:        authority,
-		accountKeeper:    ak,
-		bankWrapper:      bankWrapper,
-		stakingKeeper:    sk,
-		feeMarketWrapper: feeMarketWrapper,
-		storeKey:         storeKey,
-		transientKey:     transientKey,
-		tracer:           tracer,
-		erc20Keeper:      erc20Keeper,
-		ss:               ss,
+		cdc:             cdc,
+		authority:       authority,
+		accountKeeper:   ak,
+		bankKeeper:      bankKeeper,
+		stakingKeeper:   sk,
+		feeMarketKeeper: fmk,
+		storeKey:        storeKey,
+		transientKey:    transientKey,
+		tracer:          tracer,
+		ss:              ss,
 	}
 }
 
 // Logger returns a module-specific logger.
 func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", types.ModuleName)
+}
+
+// WithChainID sets the chain id to the local variable in the keeper
+func (k *Keeper) WithChainID(ctx sdk.Context) {
+	chainID, err := evmostypes.ParseChainID(ctx.ChainID())
+	if err != nil {
+		panic(err)
+	}
+
+	if k.eip155ChainID != nil && k.eip155ChainID.Cmp(chainID) != 0 {
+		panic("chain id already set")
+	}
+
+	if !(chainID.Cmp(big.NewInt(9001)) == 0 || chainID.Cmp(big.NewInt(9000)) == 0) {
+		panic("EVM only supports Evmos chain identifiers (9000 or 9001)")
+	}
+
+	k.eip155ChainID = chainID
+}
+
+// ChainID returns the EIP155 chain ID for the EVM context
+func (k Keeper) ChainID() *big.Int {
+	return k.eip155ChainID
 }
 
 // ----------------------------------------------------------------------------
@@ -137,7 +161,7 @@ func (k Keeper) GetAuthority() sdk.AccAddress {
 // GetBlockBloomTransient returns bloom bytes for the current block height
 func (k Keeper) GetBlockBloomTransient(ctx sdk.Context) *big.Int {
 	store := prefix.NewStore(ctx.TransientStore(k.transientKey), types.KeyPrefixTransientBloom)
-	heightBz := sdk.Uint64ToBigEndian(uint64(ctx.BlockHeight())) //nolint:gosec // G115
+	heightBz := sdk.Uint64ToBigEndian(uint64(ctx.BlockHeight()))
 	bz := store.Get(heightBz)
 	if len(bz) == 0 {
 		return big.NewInt(0)
@@ -150,7 +174,7 @@ func (k Keeper) GetBlockBloomTransient(ctx sdk.Context) *big.Int {
 // every block.
 func (k Keeper) SetBlockBloomTransient(ctx sdk.Context, bloom *big.Int) {
 	store := prefix.NewStore(ctx.TransientStore(k.transientKey), types.KeyPrefixTransientBloom)
-	heightBz := sdk.Uint64ToBigEndian(uint64(ctx.BlockHeight())) //nolint:gosec // G115
+	heightBz := sdk.Uint64ToBigEndian(uint64(ctx.BlockHeight()))
 	store.Set(heightBz, bloom.Bytes())
 }
 
@@ -167,7 +191,12 @@ func (k Keeper) SetTxIndexTransient(ctx sdk.Context, index uint64) {
 // GetTxIndexTransient returns EVM transaction index on the current block.
 func (k Keeper) GetTxIndexTransient(ctx sdk.Context) uint64 {
 	store := ctx.TransientStore(k.transientKey)
-	return sdk.BigEndianToUint64(store.Get(types.KeyPrefixTransientTxIndex))
+	bz := store.Get(types.KeyPrefixTransientTxIndex)
+	if len(bz) == 0 {
+		return 0
+	}
+
+	return sdk.BigEndianToUint64(bz)
 }
 
 // ----------------------------------------------------------------------------
@@ -177,7 +206,12 @@ func (k Keeper) GetTxIndexTransient(ctx sdk.Context) uint64 {
 // GetLogSizeTransient returns EVM log index on the current block.
 func (k Keeper) GetLogSizeTransient(ctx sdk.Context) uint64 {
 	store := ctx.TransientStore(k.transientKey)
-	return sdk.BigEndianToUint64(store.Get(types.KeyPrefixTransientLogSize))
+	bz := store.Get(types.KeyPrefixTransientLogSize)
+	if len(bz) == 0 {
+		return 0
+	}
+
+	return sdk.BigEndianToUint64(bz)
 }
 
 // SetLogSizeTransient fetches the current EVM log index from the transient store, increases its
@@ -207,6 +241,32 @@ func (k Keeper) GetAccountStorage(ctx sdk.Context, address common.Address) types
 // Account
 // ----------------------------------------------------------------------------
 
+// SetHooks sets the hooks for the EVM module
+// It should be called only once during initialization, it panic if called more than once.
+func (k *Keeper) SetHooks(eh types.EvmHooks) *Keeper {
+	if k.hooks != nil {
+		panic("cannot set evm hooks twice")
+	}
+
+	k.hooks = eh
+	return k
+}
+
+// CleanHooks resets the hooks for the EVM module
+// NOTE: Should only be used for testing purposes
+func (k *Keeper) CleanHooks() *Keeper {
+	k.hooks = nil
+	return k
+}
+
+// PostTxProcessing delegate the call to the hooks. If no hook has been registered, this function returns with a `nil` error
+func (k *Keeper) PostTxProcessing(ctx sdk.Context, msg core.Message, receipt *ethtypes.Receipt) error {
+	if k.hooks == nil {
+		return nil
+	}
+	return k.hooks.PostTxProcessing(ctx, msg, receipt)
+}
+
 // Tracer return a default vm.Tracer based on current keeper state
 func (k Keeper) Tracer(ctx sdk.Context, msg core.Message, ethCfg *params.ChainConfig) vm.EVMLogger {
 	return types.NewTracer(k.tracer, msg, ethCfg, ctx.BlockHeight())
@@ -221,15 +281,19 @@ func (k *Keeper) GetAccountWithoutBalance(ctx sdk.Context, addr common.Address) 
 		return nil
 	}
 
-	codeHashBz := k.GetCodeHash(ctx, addr).Bytes()
+	codeHash := types.EmptyCodeHash
+	ethAcct, ok := acct.(evmostypes.EthAccountI)
+	if ok {
+		codeHash = ethAcct.GetCodeHash().Bytes()
+	}
 
 	return &statedb.Account{
 		Nonce:    acct.GetSequence(),
-		CodeHash: codeHashBz,
+		CodeHash: codeHash,
 	}
 }
 
-// GetAccountOrEmpty returns empty account if not exist.
+// GetAccountOrEmpty returns empty account if not exist, returns error if it's not `EthAccount`
 func (k *Keeper) GetAccountOrEmpty(ctx sdk.Context, addr common.Address) statedb.Account {
 	acct := k.GetAccount(ctx, addr)
 	if acct != nil {
@@ -254,13 +318,16 @@ func (k *Keeper) GetNonce(ctx sdk.Context, addr common.Address) uint64 {
 	return acct.GetSequence()
 }
 
-// GetBalance load account's balance of gas token.
+// GetBalance load account's balance of gas token
 func (k *Keeper) GetBalance(ctx sdk.Context, addr common.Address) *big.Int {
 	cosmosAddr := sdk.AccAddress(addr.Bytes())
-
-	// Get the balance via bank wrapper to convert it to 18 decimals if needed.
-	coin := k.bankWrapper.GetBalance(ctx, cosmosAddr, types.GetEVMCoinDenom())
-
+	evmParams := k.GetParams(ctx)
+	evmDenom := evmParams.GetEvmDenom()
+	// if node is pruned, params is empty. Return invalid value
+	if evmDenom == "" {
+		return big.NewInt(-1)
+	}
+	coin := k.bankKeeper.GetBalance(ctx, cosmosAddr, evmDenom)
 	return coin.Amount.BigInt()
 }
 
@@ -268,12 +335,15 @@ func (k *Keeper) GetBalance(ctx sdk.Context, addr common.Address) *big.Int {
 // - `nil`: london hardfork not enabled.
 // - `0`: london hardfork enabled but feemarket is not enabled.
 // - `n`: both london hardfork and feemarket are enabled.
-func (k Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
-	ethCfg := types.GetEthChainConfig()
-	if !types.IsLondon(ethCfg, ctx.BlockHeight()) {
+func (k Keeper) GetBaseFee(ctx sdk.Context, ethCfg *params.ChainConfig) *big.Int {
+	return k.getBaseFee(ctx, types.IsLondon(ethCfg, ctx.BlockHeight()))
+}
+
+func (k Keeper) getBaseFee(ctx sdk.Context, london bool) *big.Int {
+	if !london {
 		return nil
 	}
-	baseFee := k.feeMarketWrapper.GetBaseFee(ctx)
+	baseFee := k.feeMarketKeeper.GetBaseFee(ctx)
 	if baseFee == nil {
 		// return 0 if feemarket not enabled.
 		baseFee = big.NewInt(0)
@@ -282,14 +352,13 @@ func (k Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 }
 
 // GetMinGasMultiplier returns the MinGasMultiplier param from the fee market module
-func (k Keeper) GetMinGasMultiplier(ctx sdk.Context) math.LegacyDec {
-	return k.feeMarketWrapper.GetParams(ctx).MinGasMultiplier
-}
-
-// GetMinGasPrice returns the MinGasPrice param from the fee market module
-// adapted according to the evm denom decimals
-func (k Keeper) GetMinGasPrice(ctx sdk.Context) math.LegacyDec {
-	return k.feeMarketWrapper.GetParams(ctx).MinGasPrice
+func (k Keeper) GetMinGasMultiplier(ctx sdk.Context) sdk.Dec {
+	fmkParmas := k.feeMarketKeeper.GetParams(ctx)
+	if fmkParmas.MinGasMultiplier.IsNil() {
+		// in case we are executing eth_call on a legacy block, returns a zero value.
+		return sdk.ZeroDec()
+	}
+	return fmkParmas.MinGasMultiplier
 }
 
 // ResetTransientGasUsed reset gas used to prepare for execution of current cosmos tx, called in ante handler.
@@ -301,7 +370,11 @@ func (k Keeper) ResetTransientGasUsed(ctx sdk.Context) {
 // GetTransientGasUsed returns the gas used by current cosmos tx.
 func (k Keeper) GetTransientGasUsed(ctx sdk.Context) uint64 {
 	store := ctx.TransientStore(k.transientKey)
-	return sdk.BigEndianToUint64(store.Get(types.KeyPrefixTransientGasUsed))
+	bz := store.Get(types.KeyPrefixTransientGasUsed)
+	if len(bz) == 0 {
+		return 0
+	}
+	return sdk.BigEndianToUint64(bz)
 }
 
 // SetTransientGasUsed sets the gas used by current cosmos tx.

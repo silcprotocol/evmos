@@ -1,13 +1,11 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
 package ibctesting
 
 import (
 	"bytes"
 	"fmt"
 
-	channeltypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
-	ibctesting "github.com/cosmos/ibc-go/v8/testing"
+	channeltypes "github.com/cosmos/ibc-go/v6/modules/core/04-channel/types"
+	ibctesting "github.com/cosmos/ibc-go/v6/testing"
 )
 
 // Path contains two endpoints representing two chains connected over IBC
@@ -55,12 +53,16 @@ func (path *Path) RelayPacket(packet channeltypes.Packet) error {
 			return err
 		}
 
-		ack, err := ibctesting.ParseAckFromEvents(res.GetEvents().ToABCIEvents())
+		ack, err := ibctesting.ParseAckFromEvents(res.GetEvents())
 		if err != nil {
 			return err
 		}
 
-		return path.EndpointA.AcknowledgePacket(packet, ack)
+		if err := path.EndpointA.AcknowledgePacket(packet, ack); err != nil {
+			return err
+		}
+
+		return nil
 	}
 
 	pc = path.EndpointB.Chain.App.GetIBCKeeper().ChannelKeeper.GetPacketCommitment(path.EndpointB.Chain.GetContext(), packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
@@ -76,12 +78,15 @@ func (path *Path) RelayPacket(packet channeltypes.Packet) error {
 			return err
 		}
 
-		ack, err := ibctesting.ParseAckFromEvents(res.GetEvents().ToABCIEvents())
+		ack, err := ibctesting.ParseAckFromEvents(res.GetEvents())
 		if err != nil {
 			return err
 		}
 
-		return path.EndpointB.AcknowledgePacket(packet, ack)
+		if err := path.EndpointB.AcknowledgePacket(packet, ack); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	return fmt.Errorf("packet commitment does not exist on either endpoint for provided packet")

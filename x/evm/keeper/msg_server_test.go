@@ -1,5 +1,3 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
 package keeper_test
 
 import (
@@ -8,118 +6,106 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 
-	sdktypes "github.com/cosmos/cosmos-sdk/types"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/utils"
-	"github.com/evmos/evmos/v20/x/evm/types"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/evmos/evmos/v12/x/evm/statedb"
+	"github.com/evmos/evmos/v12/x/evm/types"
 )
 
 func (suite *KeeperTestSuite) TestEthereumTx() {
-	suite.enableFeemarket = true
-	defer func() { suite.enableFeemarket = false }()
-	suite.SetupTest()
+	var (
+		err             error
+		msg             *types.MsgEthereumTx
+		signer          ethtypes.Signer
+		vmdb            *statedb.StateDB
+		expectedGasUsed uint64
+	)
+
 	testCases := []struct {
-		name        string
-		getMsg      func() *types.MsgEthereumTx
-		expectedErr error
+		name     string
+		malleate func()
+		expErr   bool
 	}{
 		{
-			"fail - insufficient gas",
-			func() *types.MsgEthereumTx {
-				args := types.EvmTxArgs{
-					// Have insufficient gas
-					GasLimit: 10,
-				}
-				tx, err := suite.factory.GenerateSignedEthTx(suite.keyring.GetPrivKey(0), args)
+			"Deploy contract tx - insufficient gas",
+			func() {
+				msg, err = suite.createContractMsgTx(
+					vmdb.GetNonce(suite.address),
+					signer,
+					big.NewInt(1),
+				)
 				suite.Require().NoError(err)
-				return tx.GetMsgs()[0].(*types.MsgEthereumTx)
 			},
-			types.ErrInvalidGasCap,
+			true,
 		},
 		{
-			"success - transfer funds tx",
-			func() *types.MsgEthereumTx {
-				recipient := suite.keyring.GetAddr(1)
-				args := types.EvmTxArgs{
-					To:     &recipient,
-					Amount: big.NewInt(1e18),
-				}
-				tx, err := suite.factory.GenerateSignedEthTx(suite.keyring.GetPrivKey(0), args)
+			"Transfer funds tx",
+			func() {
+				msg, _, err = newEthMsgTx(
+					vmdb.GetNonce(suite.address),
+					suite.address,
+					suite.signer,
+					signer,
+					ethtypes.AccessListTxType,
+					nil,
+					nil,
+				)
 				suite.Require().NoError(err)
-				return tx.GetMsgs()[0].(*types.MsgEthereumTx)
+				expectedGasUsed = params.TxGas
 			},
-			nil,
+			false,
 		},
 	}
 
 	for _, tc := range testCases {
 		suite.Run(tc.name, func() {
-			msg := tc.getMsg()
+			suite.SetupTest()
+			signer = ethtypes.LatestSignerForChainID(suite.app.EvmKeeper.ChainID())
+			vmdb = suite.StateDB()
 
-			// Function to be tested
-			res, err := suite.network.App.EvmKeeper.EthereumTx(suite.network.GetContext(), msg)
-
-			events := suite.network.GetContext().EventManager().Events()
-			if tc.expectedErr != nil {
+			tc.malleate()
+			res, err := suite.app.EvmKeeper.EthereumTx(suite.ctx, msg)
+			if tc.expErr {
 				suite.Require().Error(err)
-				// no events should have been emitted
-				suite.Require().Empty(events)
-			} else {
-				suite.Require().NoError(err)
-				suite.Require().False(res.Failed())
-
-				// check expected events were emitted
-				suite.Require().NotEmpty(events)
-				suite.Require().True(utils.ContainsEventType(events.ToABCIEvents(), types.EventTypeEthereumTx))
-				suite.Require().True(utils.ContainsEventType(events.ToABCIEvents(), types.EventTypeTxLog))
-				suite.Require().True(utils.ContainsEventType(events.ToABCIEvents(), sdktypes.EventTypeMessage))
+				return
 			}
-
-			err = suite.network.NextBlock()
 			suite.Require().NoError(err)
+			suite.Require().Equal(expectedGasUsed, res.GasUsed)
+			suite.Require().False(res.Failed())
 		})
 	}
-	suite.enableFeemarket = false
 }
 
 func (suite *KeeperTestSuite) TestUpdateParams() {
-	suite.SetupTest()
 	testCases := []struct {
-		name        string
-		getMsg      func() *types.MsgUpdateParams
-		expectedErr error
+		name      string
+		request   *types.MsgUpdateParams
+		expectErr bool
 	}{
 		{
-			name: "fail - invalid authority",
-			getMsg: func() *types.MsgUpdateParams {
-				return &types.MsgUpdateParams{Authority: "foobar"}
-			},
-			expectedErr: govtypes.ErrInvalidSigner,
+			name:      "fail - invalid authority",
+			request:   &types.MsgUpdateParams{Authority: "foobar"},
+			expectErr: true,
 		},
 		{
 			name: "pass - valid Update msg",
-			getMsg: func() *types.MsgUpdateParams {
-				return &types.MsgUpdateParams{
-					Authority: authtypes.NewModuleAddress(govtypes.ModuleName).String(),
-					Params:    types.DefaultParams(),
-				}
+			request: &types.MsgUpdateParams{
+				Authority: authtypes.NewModuleAddress(govtypes.ModuleName).String(),
+				Params:    types.DefaultParams(),
 			},
-			expectedErr: nil,
+			expectErr: false,
 		},
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		suite.Run("MsgUpdateParams", func() {
-			msg := tc.getMsg()
-			_, err := suite.network.App.EvmKeeper.UpdateParams(suite.network.GetContext(), msg)
-			if tc.expectedErr != nil {
+			_, err := suite.app.EvmKeeper.UpdateParams(suite.ctx, tc.request)
+			if tc.expectErr {
 				suite.Require().Error(err)
-				suite.Contains(err.Error(), tc.expectedErr.Error())
 			} else {
 				suite.Require().NoError(err)
 			}
 		})
-
-		err := suite.network.NextBlock()
-		suite.Require().NoError(err)
 	}
 }

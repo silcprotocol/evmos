@@ -1,10 +1,24 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package keeper
 
 import (
-	"cosmossdk.io/math"
-	"github.com/evmos/evmos/v20/x/feemarket/types"
+	"math/big"
+
+	"github.com/evmos/evmos/v12/x/feemarket/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -14,21 +28,13 @@ func (k Keeper) GetParams(ctx sdk.Context) (params types.Params) {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.ParamsKey)
 	if len(bz) == 0 {
-		k.ss.GetParamSetIfExists(ctx, &params)
-	} else {
-		k.cdc.MustUnmarshal(bz, &params)
+		var p types.Params
+		k.ss.GetParamSetIfExists(ctx, &p)
+		return p
 	}
 
-	// zero the nil params for legacy blocks
-	if params.MinGasPrice.IsNil() {
-		params.MinGasPrice = math.LegacyZeroDec()
-	}
-
-	if params.MinGasMultiplier.IsNil() {
-		params.MinGasMultiplier = math.LegacyZeroDec()
-	}
-
-	return
+	k.cdc.MustUnmarshal(bz, &params)
+	return params
 }
 
 // SetParams sets the fee market params in a single key
@@ -56,28 +62,24 @@ func (k Keeper) GetBaseFeeEnabled(ctx sdk.Context) bool {
 }
 
 // GetBaseFee gets the base fee from the store
-func (k Keeper) GetBaseFee(ctx sdk.Context) math.LegacyDec {
+func (k Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 	params := k.GetParams(ctx)
 	if params.NoBaseFee {
-		return math.LegacyDec{}
+		return nil
 	}
 
-	baseFee := params.BaseFee
-	if baseFee.IsNil() || baseFee.IsZero() {
-		bfV1 := k.GetBaseFeeV1(ctx)
-		if bfV1 == nil {
-			return math.LegacyDec{}
-		}
+	baseFee := params.BaseFee.BigInt()
+	if baseFee == nil || baseFee.Sign() == 0 {
 		// try v1 format
-		return math.LegacyNewDecFromBigInt(bfV1)
+		return k.GetBaseFeeV1(ctx)
 	}
 	return baseFee
 }
 
 // SetBaseFee set's the base fee in the store
-func (k Keeper) SetBaseFee(ctx sdk.Context, baseFee math.LegacyDec) {
+func (k Keeper) SetBaseFee(ctx sdk.Context, baseFee *big.Int) {
 	params := k.GetParams(ctx)
-	params.BaseFee = baseFee
+	params.BaseFee = sdk.NewIntFromBigInt(baseFee)
 	err := k.SetParams(ctx, params)
 	if err != nil {
 		return

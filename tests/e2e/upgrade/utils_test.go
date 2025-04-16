@@ -7,43 +7,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCheckUpgradeProposalVersion(t *testing.T) {
+// TestCheckLegacyProposal tests the checkLegacyProposal function with different version strings
+func TestCheckLegacyProposal(t *testing.T) {
+	var legacyProposal bool
+
 	testCases := []struct {
 		Name string
 		Ver  string
-		Exp  ProposalVersion
+		Exp  bool
 	}{
 		{
-			Name: "legacy proposal pre v0.47 - v10.0.1",
+			Name: "legacy proposal - v10.0.1",
 			Ver:  "v10.0.1",
-			Exp:  LegacyProposalPreV50,
+			Exp:  true,
 		},
 		{
-			Name: "normal proposal pre v0.46 - v9.1.0",
+			Name: "normal proposal - v9.1.0",
 			Ver:  "v9.1.0",
-			Exp:  LegacyProposalPreV46,
+			Exp:  false,
 		},
 		{
 			Name: "normal proposal - version with whitespace - v9.1.0",
 			Ver:  "\tv9.1.0 ",
-			Exp:  LegacyProposalPreV46,
+			Exp:  false,
 		},
 		{
 			Name: "normal proposal - version without v - 9.1.0",
 			Ver:  "9.1.0",
-			Exp:  LegacyProposalPreV46,
-		},
-		{
-			Name: "SDK v0.50 proposal - version with whitespace - v20.0.0",
-			Ver:  "\tv20.0.0 ",
-			Exp:  UpgradeProposalV50,
+			Exp:  false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.Name, func(t *testing.T) {
-			legacyProposal := CheckUpgradeProposalVersion(tc.Ver)
-			require.Equal(t, tc.Exp, legacyProposal, "expected: %v, got: %v", tc.Exp, legacyProposal)
+			legacyProposal = CheckLegacyProposal(tc.Ver)
+			require.Equal(t, legacyProposal, tc.Exp, "expected: %v, got: %v", tc.Exp, legacyProposal)
 		})
 	}
 }
@@ -102,6 +100,6 @@ func TestRetrieveUpgradesList(t *testing.T) {
 
 	// check if all entries in the list match a semantic versioning pattern
 	for _, upgrade := range upgradeList {
-		require.Regexp(t, `^v\d+\.\d+\.\d+(-rc\d+)*$`, upgrade, "expected upgrade version to be in semantic versioning format")
+		require.Regexp(t, `^v\d+\.\d+\.\d+$`, upgrade, "expected upgrade version to be in semantic versioning format")
 	}
 }

@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package server
 
 import (
@@ -7,15 +20,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	cmtconfig "github.com/cometbft/cometbft/config"
-	sm "github.com/cometbft/cometbft/state"
-	cmtstore "github.com/cometbft/cometbft/store"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/server"
-	"github.com/evmos/evmos/v20/indexer"
+	"github.com/evmos/evmos/v12/indexer"
+	tmnode "github.com/tendermint/tendermint/node"
+	sm "github.com/tendermint/tendermint/state"
+	tmstore "github.com/tendermint/tendermint/store"
 )
 
-// NewIndexTxCmd creates a new Cobra command to index historical Ethereum transactions.
 func NewIndexTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "index-eth-tx [backward|forward]",
@@ -51,13 +63,13 @@ func NewIndexTxCmd() *cobra.Command {
 			idxer := indexer.NewKVIndexer(idxDB, logger.With("module", "evmindex"), clientCtx)
 
 			// open local tendermint db, because the local rpc won't be available.
-			cmtdb, err := cmtconfig.DefaultDBProvider(&cmtconfig.DBContext{ID: "blockstore", Config: cfg})
+			tmdb, err := tmnode.DefaultDBProvider(&tmnode.DBContext{ID: "blockstore", Config: cfg})
 			if err != nil {
 				return err
 			}
-			blockStore := cmtstore.NewBlockStore(cmtdb)
+			blockStore := tmstore.NewBlockStore(tmdb)
 
-			stateDB, err := cmtconfig.DefaultDBProvider(&cmtconfig.DBContext{ID: "state", Config: cfg})
+			stateDB, err := tmnode.DefaultDBProvider(&tmnode.DBContext{ID: "state", Config: cfg})
 			if err != nil {
 				return err
 			}
@@ -70,11 +82,11 @@ func NewIndexTxCmd() *cobra.Command {
 				if blk == nil {
 					return fmt.Errorf("block not found %d", height)
 				}
-				resBlk, err := stateStore.LoadFinalizeBlockResponse(height)
+				resBlk, err := stateStore.LoadABCIResponses(height)
 				if err != nil {
 					return err
 				}
-				if err := idxer.IndexBlock(blk, resBlk.TxResults); err != nil {
+				if err := idxer.IndexBlock(blk, resBlk.DeliverTxs); err != nil {
 					return err
 				}
 				fmt.Println(height)

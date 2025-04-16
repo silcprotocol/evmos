@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package backend
 
 import (
@@ -9,7 +22,6 @@ import (
 
 	errorsmod "cosmossdk.io/errors"
 	sdkmath "cosmossdk.io/math"
-	cmttypes "github.com/cometbft/cometbft/types"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdkcrypto "github.com/cosmos/cosmos-sdk/crypto"
@@ -21,22 +33,17 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
-
-	"github.com/evmos/evmos/v20/crypto/ethsecp256k1"
-	rpctypes "github.com/evmos/evmos/v20/rpc/types"
-	"github.com/evmos/evmos/v20/server/config"
-	"github.com/evmos/evmos/v20/types"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/crypto/ethsecp256k1"
+	rpctypes "github.com/evmos/evmos/v12/rpc/types"
+	"github.com/evmos/evmos/v12/server/config"
+	"github.com/evmos/evmos/v12/types"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
+	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 // Accounts returns the list of accounts available to this node.
 func (b *Backend) Accounts() ([]common.Address, error) {
 	addresses := make([]common.Address, 0) // return [] instead of nil if empty
-
-	if !b.cfg.JSONRPC.AllowInsecureUnlock {
-		b.logger.Debug("account unlock with HTTP access is forbidden")
-		return addresses, fmt.Errorf("account unlock with HTTP access is forbidden")
-	}
 
 	infos, err := b.clientCtx.Keyring.List()
 	if err != nil {
@@ -73,8 +80,8 @@ func (b *Backend) Syncing() (interface{}, error) {
 	}
 
 	return map[string]interface{}{
-		"startingBlock": hexutil.Uint64(status.SyncInfo.EarliestBlockHeight), //nolint:gosec // G115
-		"currentBlock":  hexutil.Uint64(status.SyncInfo.LatestBlockHeight),   //nolint:gosec // G115
+		"startingBlock": hexutil.Uint64(status.SyncInfo.EarliestBlockHeight),
+		"currentBlock":  hexutil.Uint64(status.SyncInfo.LatestBlockHeight),
 		// "highestBlock":  nil, // NA
 		// "pulledStates":  nil, // NA
 		// "knownStates":   nil, // NA
@@ -83,11 +90,6 @@ func (b *Backend) Syncing() (interface{}, error) {
 
 // SetEtherbase sets the etherbase of the miner
 func (b *Backend) SetEtherbase(etherbase common.Address) bool {
-	if !b.cfg.JSONRPC.AllowInsecureUnlock {
-		b.logger.Debug("account unlock with HTTP access is forbidden")
-		return false
-	}
-
 	delAddr, err := b.GetCoinbase()
 	if err != nil {
 		b.logger.Debug("failed to get coinbase address", "error", err.Error())
@@ -96,6 +98,11 @@ func (b *Backend) SetEtherbase(etherbase common.Address) bool {
 
 	withdrawAddr := sdk.AccAddress(etherbase.Bytes())
 	msg := distributiontypes.NewMsgSetWithdrawAddress(delAddr, withdrawAddr)
+
+	if err := msg.ValidateBasic(); err != nil {
+		b.logger.Debug("tx failed basic validation", "error", err.Error())
+		return false
+	}
 
 	// Assemble transaction from fields
 	builder, ok := b.clientCtx.TxConfig.NewTxBuilder().(authtx.ExtensionOptionsTxBuilder)
@@ -110,10 +117,10 @@ func (b *Backend) SetEtherbase(etherbase common.Address) bool {
 		return false
 	}
 
-	// Fetch minimum gas price to calculate fees using the configuration.
+	// Fetch minimun gas price to calculate fees using the configuration.
 	minGasPrices := b.cfg.GetMinGasPrices()
 	if len(minGasPrices) == 0 || minGasPrices.Empty() {
-		b.logger.Debug("the minimum fee is not set")
+		b.logger.Debug("the minimun fee is not set")
 		return false
 	}
 	minGasPriceValue := minGasPrices[0].Amount
@@ -153,7 +160,7 @@ func (b *Backend) SetEtherbase(etherbase common.Address) bool {
 		return false
 	}
 
-	if err := tx.Sign(b.clientCtx.CmdContext, txFactory, keyInfo.Name, builder, false); err != nil {
+	if err := tx.Sign(txFactory, keyInfo.Name, builder, false); err != nil {
 		b.logger.Debug("failed to sign tx", "error", err.Error())
 		return false
 	}
@@ -166,7 +173,7 @@ func (b *Backend) SetEtherbase(etherbase common.Address) bool {
 		return false
 	}
 
-	tmHash := common.BytesToHash(cmttypes.Tx(txBytes).Hash())
+	tmHash := common.BytesToHash(tmtypes.Tx(txBytes).Hash())
 
 	// Broadcast transaction in sync mode (default)
 	// NOTE: If error is encountered on the node, the broadcast will not return an error
@@ -224,11 +231,6 @@ func (b *Backend) ImportRawKey(privkey, password string) (common.Address, error)
 func (b *Backend) ListAccounts() ([]common.Address, error) {
 	addrs := []common.Address{}
 
-	if !b.cfg.JSONRPC.AllowInsecureUnlock {
-		b.logger.Debug("account unlock with HTTP access is forbidden")
-		return addrs, fmt.Errorf("account unlock with HTTP access is forbidden")
-	}
-
 	list, err := b.clientCtx.Keyring.List()
 	if err != nil {
 		return nil, err
@@ -247,7 +249,7 @@ func (b *Backend) ListAccounts() ([]common.Address, error) {
 
 // NewAccount will create a new account and returns the address for the new account.
 func (b *Backend) NewMnemonic(uid string,
-	_ keyring.Language,
+	language keyring.Language,
 	hdPath,
 	bip39Passphrase string,
 	algo keyring.SignatureAlgo,
@@ -268,31 +270,28 @@ func (b *Backend) SetGasPrice(gasPrice hexutil.Big) bool {
 		b.logger.Debug("could not get the server config", "error", err.Error())
 		return false
 	}
-	c := b.GenerateMinGasCoin(gasPrice, appConf)
 
-	appConf.SetMinGasPrices(sdk.DecCoins{c})
-	sdkconfig.WriteConfigFile(b.clientCtx.Viper.ConfigFileUsed(), appConf)
-	b.logger.Info("Your configuration file was modified. Please RESTART your node.", "gas-price", c.String())
-	return true
-}
-
-func (b *Backend) GenerateMinGasCoin(gasPrice hexutil.Big, appConf config.Config) sdk.DecCoin {
 	var unit string
 	minGasPrices := appConf.GetMinGasPrices()
 
 	// fetch the base denom from the sdk Config in case it's not currently defined on the node config
 	if len(minGasPrices) == 0 || minGasPrices.Empty() {
-		unit = evmtypes.GetEVMCoinDenom()
+		var err error
+		unit, err = sdk.GetBaseDenom()
+		if err != nil {
+			b.logger.Debug("could not get the denom of smallest unit registered", "error", err.Error())
+			return false
+		}
 	} else {
 		unit = minGasPrices[0].Denom
 	}
 
-	// The provided gasPrice has 18 decimals.
-	// We need to update to the denom's real precision
-	scaledAmt := evmtypes.ConvertBigIntFrom18DecimalsToLegacyDec(gasPrice.ToInt())
-	c := sdk.DecCoin{Denom: unit, Amount: scaledAmt}
+	c := sdk.NewDecCoin(unit, sdk.NewIntFromBigInt(gasPrice.ToInt()))
 
-	return c
+	appConf.SetMinGasPrices(sdk.DecCoins{c})
+	sdkconfig.WriteConfigFile(b.clientCtx.Viper.ConfigFileUsed(), appConf)
+	b.logger.Info("Your configuration file was modified. Please RESTART your node.", "gas-price", c.String())
+	return true
 }
 
 // UnprotectedAllowed returns the node configuration value for allowing
@@ -338,14 +337,18 @@ func (b *Backend) RPCBlockRangeCap() int32 {
 
 // RPCMinGasPrice returns the minimum gas price for a transaction obtained from
 // the node config. If set value is 0, it will default to 20.
-func (b *Backend) RPCMinGasPrice() *big.Int {
-	baseDenom := evmtypes.GetEVMCoinDenom()
 
-	minGasPrice := b.cfg.GetMinGasPrices()
-	amt := minGasPrice.AmountOf(baseDenom)
-	if amt.IsNil() || amt.IsZero() {
-		return big.NewInt(types.DefaultGasPrice)
+func (b *Backend) RPCMinGasPrice() int64 {
+	evmParams, err := b.queryClient.Params(b.ctx, &evmtypes.QueryParamsRequest{})
+	if err != nil {
+		return types.DefaultGasPrice
 	}
 
-	return evmtypes.ConvertAmountTo18DecimalsLegacy(amt).TruncateInt().BigInt()
+	minGasPrice := b.cfg.GetMinGasPrices()
+	amt := minGasPrice.AmountOf(evmParams.Params.EvmDenom).TruncateInt64()
+	if amt == 0 {
+		return types.DefaultGasPrice
+	}
+
+	return amt
 }

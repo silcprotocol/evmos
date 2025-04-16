@@ -3,27 +3,21 @@ package keeper_test
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 
 	"github.com/ethereum/go-ethereum/common"
-	testfactory "github.com/evmos/evmos/v20/testutil/integration/evmos/factory"
-	utiltx "github.com/evmos/evmos/v20/testutil/tx"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	utiltx "github.com/evmos/evmos/v12/testutil/tx"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/evmos/evmos/v20/contracts"
-	"github.com/evmos/evmos/v20/x/erc20/keeper"
-	"github.com/evmos/evmos/v20/x/erc20/types"
-	erc20mocks "github.com/evmos/evmos/v20/x/erc20/types/mocks"
+	"github.com/evmos/evmos/v12/contracts"
+	"github.com/evmos/evmos/v12/x/erc20/keeper"
+	"github.com/evmos/evmos/v12/x/erc20/types"
 )
 
 func (suite *KeeperTestSuite) TestQueryERC20() {
-	var (
-		contract common.Address
-		ctx      sdk.Context
-	)
+	var contract common.Address
 	testCases := []struct {
 		name     string
 		malleate func()
@@ -36,30 +30,16 @@ func (suite *KeeperTestSuite) TestQueryERC20() {
 		},
 		{
 			"ok",
-			func() {
-				var err error
-				contract, err = suite.factory.DeployContract(
-					suite.keyring.GetPrivKey(0),
-					evmtypes.EvmTxArgs{},
-					testfactory.ContractDeploymentData{
-						Contract:        contracts.ERC20MinterBurnerDecimalsContract,
-						ConstructorArgs: []interface{}{"coin", "token", erc20Decimals},
-					},
-				)
-				suite.Require().NoError(err)
-				suite.Require().NoError(suite.network.NextBlock())
-				ctx = suite.network.GetContext()
-			},
+			func() { contract, _ = suite.DeployContract("coin", "token", erc20Decimals) },
 			true,
 		},
 	}
 	for _, tc := range testCases {
 		suite.SetupTest() // reset
-		ctx = suite.network.GetContext()
 
 		tc.malleate()
 
-		res, err := suite.network.App.Erc20Keeper.QueryERC20(ctx, contract)
+		res, err := suite.app.Erc20Keeper.QueryERC20(suite.ctx, contract)
 		if tc.res {
 			suite.Require().NoError(err)
 			suite.Require().Equal(
@@ -73,7 +53,7 @@ func (suite *KeeperTestSuite) TestQueryERC20() {
 }
 
 func (suite *KeeperTestSuite) TestBalanceOf() {
-	var mockEVMKeeper *erc20mocks.EVMKeeper
+	var mockEVMKeeper *MockEVMKeeper
 	contract := utiltx.GenerateAddress()
 	testCases := []struct {
 		name       string
@@ -84,8 +64,7 @@ func (suite *KeeperTestSuite) TestBalanceOf() {
 		{
 			"Failed to call Evm",
 			func() {
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("forced ApplyMessage error"))
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("forced ApplyMessage error"))
 			},
 			int64(0),
 			false,
@@ -93,8 +72,7 @@ func (suite *KeeperTestSuite) TestBalanceOf() {
 		{
 			"Incorrect res",
 			func() {
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: []uint8{0, 0}}, nil).Once()
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: []uint8{0, 0}}, nil).Once()
 			},
 			int64(0),
 			false,
@@ -104,8 +82,7 @@ func (suite *KeeperTestSuite) TestBalanceOf() {
 			func() {
 				balance := make([]uint8, 32)
 				balance[31] = uint8(10)
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: balance}, nil).Once()
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: balance}, nil).Once()
 			},
 			int64(10),
 			true,
@@ -113,19 +90,17 @@ func (suite *KeeperTestSuite) TestBalanceOf() {
 	}
 	for _, tc := range testCases {
 		suite.SetupTest() // reset
-		mockEVMKeeper = &erc20mocks.EVMKeeper{}
-		suite.network.App.Erc20Keeper = keeper.NewKeeper(
-			suite.network.App.GetKey("erc20"), suite.network.App.AppCodec(),
+		mockEVMKeeper = &MockEVMKeeper{}
+		suite.app.Erc20Keeper = keeper.NewKeeper(
+			suite.app.GetKey("erc20"), suite.app.AppCodec(),
 			authtypes.NewModuleAddress(govtypes.ModuleName),
-			suite.network.App.AccountKeeper, suite.network.App.BankKeeper,
-			mockEVMKeeper, suite.network.App.StakingKeeper,
-			suite.network.App.AuthzKeeper, &suite.network.App.TransferKeeper,
-		)
+			suite.app.AccountKeeper, suite.app.BankKeeper,
+			mockEVMKeeper, suite.app.StakingKeeper, suite.app.ClaimsKeeper)
 
 		tc.malleate()
 
-		abi := contracts.ERC20MinterBurnerDecimalsContract.ABI
-		balance := suite.network.App.Erc20Keeper.BalanceOf(suite.network.GetContext(), abi, contract, utiltx.GenerateAddress())
+		abi := contracts.ERC20BurnableContract.ABI
+		balance := suite.app.Erc20Keeper.BalanceOf(suite.ctx, abi, contract, utiltx.GenerateAddress())
 		if tc.res {
 			suite.Require().Equal(balance.Int64(), tc.expBalance)
 		} else {
@@ -134,8 +109,202 @@ func (suite *KeeperTestSuite) TestBalanceOf() {
 	}
 }
 
+func (suite *KeeperTestSuite) TestCallEVM() {
+	testCases := []struct {
+		name    string
+		method  string
+		expPass bool
+	}{
+		{
+			"unknown method",
+			"",
+			false,
+		},
+		{
+			"pass",
+			"balanceOf",
+			true,
+		},
+	}
+	for _, tc := range testCases {
+		suite.SetupTest() // reset
+
+		erc20 := contracts.ERC20MinterBurnerDecimalsContract.ABI
+		contract, err := suite.DeployContract("coin", "token", erc20Decimals)
+		suite.Require().NoError(err)
+		account := utiltx.GenerateAddress()
+
+		res, err := suite.app.Erc20Keeper.CallEVM(suite.ctx, erc20, types.ModuleAddress, contract, true, tc.method, account)
+		if tc.expPass {
+			suite.Require().IsTypef(&evmtypes.MsgEthereumTxResponse{}, res, tc.name)
+			suite.Require().NoError(err)
+		} else {
+			suite.Require().Error(err)
+		}
+	}
+}
+
+func (suite *KeeperTestSuite) TestCallEVMWithData() {
+	erc20 := contracts.ERC20MinterBurnerDecimalsContract.ABI
+	testCases := []struct {
+		name     string
+		from     common.Address
+		malleate func() ([]byte, *common.Address)
+		expPass  bool
+	}{
+		{
+			"unknown method",
+			types.ModuleAddress,
+			func() ([]byte, *common.Address) {
+				contract, err := suite.DeployContract("coin", "token", erc20Decimals)
+				suite.Require().NoError(err)
+				account := utiltx.GenerateAddress()
+				data, _ := erc20.Pack("", account)
+				return data, &contract
+			},
+			false,
+		},
+		{
+			"pass",
+			types.ModuleAddress,
+			func() ([]byte, *common.Address) {
+				contract, err := suite.DeployContract("coin", "token", erc20Decimals)
+				suite.Require().NoError(err)
+				account := utiltx.GenerateAddress()
+				data, _ := erc20.Pack("balanceOf", account)
+				return data, &contract
+			},
+			true,
+		},
+		{
+			"fail empty data",
+			types.ModuleAddress,
+			func() ([]byte, *common.Address) {
+				contract, err := suite.DeployContract("coin", "token", erc20Decimals)
+				suite.Require().NoError(err)
+				return []byte{}, &contract
+			},
+			false,
+		},
+
+		{
+			"fail empty sender",
+			common.Address{},
+			func() ([]byte, *common.Address) {
+				contract, err := suite.DeployContract("coin", "token", erc20Decimals)
+				suite.Require().NoError(err)
+				return []byte{}, &contract
+			},
+			false,
+		},
+		{
+			"deploy",
+			types.ModuleAddress,
+			func() ([]byte, *common.Address) {
+				ctorArgs, _ := contracts.ERC20MinterBurnerDecimalsContract.ABI.Pack("", "test", "test", uint8(18))
+				data := append(contracts.ERC20MinterBurnerDecimalsContract.Bin, ctorArgs...) //nolint:gocritic
+				return data, nil
+			},
+			true,
+		},
+		{
+			"fail deploy",
+			types.ModuleAddress,
+			func() ([]byte, *common.Address) {
+				params := suite.app.EvmKeeper.GetParams(suite.ctx)
+				params.EnableCreate = false
+				_ = suite.app.EvmKeeper.SetParams(suite.ctx, params)
+				ctorArgs, _ := contracts.ERC20MinterBurnerDecimalsContract.ABI.Pack("", "test", "test", uint8(18))
+				data := append(contracts.ERC20MinterBurnerDecimalsContract.Bin, ctorArgs...) //nolint:gocritic
+				return data, nil
+			},
+			false,
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(fmt.Sprintf("Case %s", tc.name), func() {
+			suite.SetupTest() // reset
+
+			data, contract := tc.malleate()
+
+			res, err := suite.app.Erc20Keeper.CallEVMWithData(suite.ctx, tc.from, contract, data, true)
+			if tc.expPass {
+				suite.Require().IsTypef(&evmtypes.MsgEthereumTxResponse{}, res, tc.name)
+				suite.Require().NoError(err)
+			} else {
+				suite.Require().Error(err)
+			}
+		})
+	}
+}
+
+func (suite *KeeperTestSuite) TestForceFail() {
+	var mockEVMKeeper *MockEVMKeeper
+	erc20 := contracts.ERC20MinterBurnerDecimalsContract.ABI
+	testCases := []struct {
+		name     string
+		malleate func()
+		commit   bool
+		expPass  bool
+	}{
+		{
+			"Force estimate gas error",
+			func() {
+				mockEVMKeeper.On("EstimateGas", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("forced EstimateGas error"))
+			},
+			true,
+			false,
+		},
+		{
+			"Force ApplyMessage error",
+			func() {
+				mockEVMKeeper.On("EstimateGas", mock.Anything, mock.Anything).Return(&evmtypes.EstimateGasResponse{Gas: uint64(200)}, nil)
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("forced ApplyMessage error"))
+			},
+			true,
+			false,
+		},
+		{
+			"Force ApplyMessage failed",
+			func() {
+				mockEVMKeeper.On("EstimateGas", mock.Anything, mock.Anything).Return(&evmtypes.EstimateGasResponse{Gas: uint64(200)}, nil)
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{VmError: "SomeError"}, nil)
+			},
+			true,
+			false,
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(fmt.Sprintf("Case %s", tc.name), func() {
+			suite.SetupTest() // reset
+			mockEVMKeeper = &MockEVMKeeper{}
+			suite.app.Erc20Keeper = keeper.NewKeeper(
+				suite.app.GetKey("erc20"), suite.app.AppCodec(),
+				authtypes.NewModuleAddress(govtypes.ModuleName), suite.app.AccountKeeper,
+				suite.app.BankKeeper, mockEVMKeeper, suite.app.StakingKeeper, suite.app.ClaimsKeeper)
+
+			tc.malleate()
+
+			contract, err := suite.DeployContract("coin", "token", erc20Decimals)
+			suite.Require().NoError(err)
+			account := utiltx.GenerateAddress()
+			data, _ := erc20.Pack("balanceOf", account)
+
+			res, err := suite.app.Erc20Keeper.CallEVMWithData(suite.ctx, types.ModuleAddress, &contract, data, tc.commit)
+			if tc.expPass {
+				suite.Require().IsTypef(&evmtypes.MsgEthereumTxResponse{}, res, tc.name)
+				suite.Require().NoError(err)
+			} else {
+				suite.Require().Error(err)
+			}
+		})
+	}
+}
+
 func (suite *KeeperTestSuite) TestQueryERC20ForceFail() {
-	var mockEVMKeeper *erc20mocks.EVMKeeper
+	var mockEVMKeeper *MockEVMKeeper
 	contract := utiltx.GenerateAddress()
 	testCases := []struct {
 		name     string
@@ -145,16 +314,14 @@ func (suite *KeeperTestSuite) TestQueryERC20ForceFail() {
 		{
 			"Failed to call Evm",
 			func() {
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything).Return(nil, fmt.Errorf("forced ApplyMessage error"))
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("forced ApplyMessage error"))
 			},
 			false,
 		},
 		{
 			"Incorrect res",
 			func() {
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: []uint8{0, 0}}, nil).Once()
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: []uint8{0, 0}}, nil).Once()
 			},
 			false,
 		},
@@ -163,8 +330,7 @@ func (suite *KeeperTestSuite) TestQueryERC20ForceFail() {
 			func() {
 				ret := []uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 67, 111, 105, 110, 32, 84, 111, 107, 101, 110, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: ret}, nil).Once()
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{VmError: "Error"}, nil).Once()
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{VmError: "Error"}, nil).Once()
 			},
 			false,
 		},
@@ -172,10 +338,8 @@ func (suite *KeeperTestSuite) TestQueryERC20ForceFail() {
 			"incorrect symbol res",
 			func() {
 				ret := []uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 67, 111, 105, 110, 32, 84, 111, 107, 101, 110, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: ret}, nil).Once()
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: []uint8{0, 0}}, nil).Once()
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: ret}, nil).Once()
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: []uint8{0, 0}}, nil).Once()
 			},
 			false,
 		},
@@ -184,12 +348,9 @@ func (suite *KeeperTestSuite) TestQueryERC20ForceFail() {
 			func() {
 				ret := []uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 67, 111, 105, 110, 32, 84, 111, 107, 101, 110, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 				retSymbol := []uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 67, 84, 75, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: ret}, nil).Once()
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: retSymbol}, nil).Once()
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{VmError: "Error"}, nil).Once()
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: ret}, nil).Once()
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: retSymbol}, nil).Once()
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{VmError: "Error"}, nil).Once()
 			},
 			false,
 		},
@@ -198,31 +359,24 @@ func (suite *KeeperTestSuite) TestQueryERC20ForceFail() {
 			func() {
 				ret := []uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 67, 111, 105, 110, 32, 84, 111, 107, 101, 110, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 				retSymbol := []uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 67, 84, 75, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: ret}, nil).Once()
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: retSymbol}, nil).Once()
-				mockEVMKeeper.On("CallEVM", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-					mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: []uint8{0, 0}}, nil).Once()
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: ret}, nil).Once()
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: retSymbol}, nil).Once()
+				mockEVMKeeper.On("ApplyMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&evmtypes.MsgEthereumTxResponse{Ret: []uint8{0, 0}}, nil).Once()
 			},
 			false,
 		},
 	}
 	for _, tc := range testCases {
 		suite.SetupTest() // reset
-
-		// TODO: what's the reason we are using mockEVMKeeper here? Instead of just passing the suite.app.EvmKeeper?
-		mockEVMKeeper = &erc20mocks.EVMKeeper{}
-		suite.network.App.Erc20Keeper = keeper.NewKeeper(
-			suite.network.App.GetKey("erc20"), suite.network.App.AppCodec(),
-			authtypes.NewModuleAddress(govtypes.ModuleName), suite.network.App.AccountKeeper,
-			suite.network.App.BankKeeper, mockEVMKeeper, suite.network.App.StakingKeeper,
-			suite.network.App.AuthzKeeper, &suite.network.App.TransferKeeper,
-		)
+		mockEVMKeeper = &MockEVMKeeper{}
+		suite.app.Erc20Keeper = keeper.NewKeeper(
+			suite.app.GetKey("erc20"), suite.app.AppCodec(),
+			authtypes.NewModuleAddress(govtypes.ModuleName), suite.app.AccountKeeper,
+			suite.app.BankKeeper, mockEVMKeeper, suite.app.StakingKeeper, suite.app.ClaimsKeeper)
 
 		tc.malleate()
 
-		res, err := suite.network.App.Erc20Keeper.QueryERC20(suite.network.GetContext(), contract)
+		res, err := suite.app.Erc20Keeper.QueryERC20(suite.ctx, contract)
 		if tc.res {
 			suite.Require().NoError(err)
 			suite.Require().Equal(

@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package filters
 
 import (
@@ -9,20 +22,20 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/evmos/evmos/v20/rpc/types"
+	"github.com/evmos/evmos/v12/rpc/types"
 
-	"cosmossdk.io/log"
+	"github.com/tendermint/tendermint/libs/log"
 
-	coretypes "github.com/cometbft/cometbft/rpc/core/types"
-	rpcclient "github.com/cometbft/cometbft/rpc/jsonrpc/client"
-	cmttypes "github.com/cometbft/cometbft/types"
+	coretypes "github.com/tendermint/tendermint/rpc/core/types"
+	rpcclient "github.com/tendermint/tendermint/rpc/jsonrpc/client"
+	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
 
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 // FilterAPI gathers
@@ -159,7 +172,7 @@ func (api *PublicFilterAPI) NewPendingTransactionFilter() rpc.ID {
 					return
 				}
 
-				data, ok := ev.Data.(cmttypes.EventDataTx)
+				data, ok := ev.Data.(tmtypes.EventDataTx)
 				if !ok {
 					api.logger.Debug("event data type mismatch", "type", fmt.Sprintf("%T", ev.Data))
 					continue
@@ -225,7 +238,7 @@ func (api *PublicFilterAPI) NewPendingTransactions(ctx context.Context) (*rpc.Su
 					return
 				}
 
-				data, ok := ev.Data.(cmttypes.EventDataTx)
+				data, ok := ev.Data.(tmtypes.EventDataTx)
 				if !ok {
 					api.logger.Debug("event data type mismatch", "type", fmt.Sprintf("%T", ev.Data))
 					continue
@@ -289,7 +302,7 @@ func (api *PublicFilterAPI) NewBlockFilter() rpc.ID {
 					return
 				}
 
-				data, ok := ev.Data.(cmttypes.EventDataNewBlockHeader)
+				data, ok := ev.Data.(tmtypes.EventDataNewBlockHeader)
 				if !ok {
 					api.logger.Debug("event data type mismatch", "type", fmt.Sprintf("%T", ev.Data))
 					continue
@@ -338,16 +351,16 @@ func (api *PublicFilterAPI) NewHeads(ctx context.Context) (*rpc.Subscription, er
 					return
 				}
 
-				data, ok := ev.Data.(cmttypes.EventDataNewBlock)
+				data, ok := ev.Data.(tmtypes.EventDataNewBlockHeader)
 				if !ok {
 					api.logger.Debug("event data type mismatch", "type", fmt.Sprintf("%T", ev.Data))
 					continue
 				}
 
-				baseFee := types.BaseFeeFromEvents(data.ResultFinalizeBlock.Events)
+				baseFee := types.BaseFeeFromEvents(data.ResultBeginBlock.Events)
 
 				// TODO: fetch bloom from events
-				header := types.EthHeaderFromTendermint(data.Block.Header, ethtypes.Bloom{}, baseFee)
+				header := types.EthHeaderFromTendermint(data.Header, ethtypes.Bloom{}, baseFee)
 				_ = notifier.Notify(rpcSub.ID, header) // #nosec G703
 			case <-rpcSub.Err():
 				headersSub.Unsubscribe(api.events)
@@ -397,7 +410,7 @@ func (api *PublicFilterAPI) Logs(ctx context.Context, crit filters.FilterCriteri
 				}
 
 				// get transaction result data
-				dataTx, ok := ev.Data.(cmttypes.EventDataTx)
+				dataTx, ok := ev.Data.(tmtypes.EventDataTx)
 				if !ok {
 					api.logger.Debug("event data type mismatch", "type", fmt.Sprintf("%T", ev.Data))
 					continue
@@ -480,7 +493,7 @@ func (api *PublicFilterAPI) NewFilter(criteria filters.FilterCriteria) (rpc.ID, 
 					api.filtersMu.Unlock()
 					return
 				}
-				dataTx, ok := ev.Data.(cmttypes.EventDataTx)
+				dataTx, ok := ev.Data.(tmtypes.EventDataTx)
 				if !ok {
 					api.logger.Debug("event data type mismatch", "type", fmt.Sprintf("%T", ev.Data))
 					continue

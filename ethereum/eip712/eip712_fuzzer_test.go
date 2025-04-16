@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	rand "github.com/cometbft/cometbft/libs/rand"
+	rand "github.com/tendermint/tendermint/libs/rand"
 
-	"github.com/evmos/evmos/v20/ethereum/eip712"
+	"github.com/evmos/evmos/v12/ethereum/eip712"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -188,6 +188,6 @@ func (suite *EIP712TestSuite) createRandomString() string {
 }
 
 // createRandomIntInRange provides a random integer between [min, max)
-func (suite *EIP712TestSuite) createRandomIntInRange(minInt int, maxInt int) int {
-	return rand.Intn(maxInt-minInt) + minInt
+func (suite *EIP712TestSuite) createRandomIntInRange(min int, max int) int {
+	return rand.Intn(max-min) + min
 }

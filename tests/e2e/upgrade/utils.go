@@ -1,10 +1,24 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package upgrade
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"regexp"
@@ -17,7 +31,7 @@ import (
 // EvmosVersions is a custom comparator for sorting semver version strings.
 type EvmosVersions []string
 
-// Len is the number of stored versions.
+// Len is the number of stored versions..
 func (v EvmosVersions) Len() int { return len(v) }
 
 // Swap swaps the elements with indexes i and j. It is needed to sort the slice.
@@ -27,50 +41,27 @@ func (v EvmosVersions) Swap(i, j int) { v[i], v[j] = v[j], v[i] }
 func (v EvmosVersions) Less(i, j int) bool {
 	v1, err := version.NewVersion(v[i])
 	if err != nil {
-		panic(fmt.Sprintf("couldn't interpret version as SemVer string: %s: %s", v[i], err.Error()))
+		log.Fatalf("couldn't interpret version as SemVer string: %s: %s", v[i], err.Error())
 	}
-
 	v2, err := version.NewVersion(v[j])
 	if err != nil {
-		panic(fmt.Sprintf("couldn't interpret version as SemVer string: %s: %s", v[j], err.Error()))
+		log.Fatalf("couldn't interpret version as SemVer string: %s: %s", v[j], err.Error())
 	}
-
 	return v1.LessThan(v2)
 }
 
-// ProposalVersion is an enum to represent the type of upgrade proposal to be used
-// based on the Evmos version.
-//
-// This is required since the way to submit an upgrade proposal has changed between
-// different SDK versions.
-type ProposalVersion uint8
-
-const (
-	LegacyProposalPreV46 ProposalVersion = iota
-	LegacyProposalPreV50
-	UpgradeProposalV50
-)
-
-// CheckUpgradeProposalVersion checks if the running node requires a legacy proposal
-func CheckUpgradeProposalVersion(version string) ProposalVersion {
+// CheckLegacyProposal checks if the running node requires a legacy proposal
+func CheckLegacyProposal(version string) bool {
 	version = strings.TrimSpace(version)
 	if !strings.HasPrefix(version, "v") {
 		version = "v" + version
 	}
 
-	// if version is lower than v10.x.x, then it's using SDK v0.46
-	cmp := EvmosVersions([]string{version, "v10.0.0", "v20.0.0"})
-	var proposalVersion ProposalVersion
-	switch {
-	case cmp.Less(0, 1):
-		proposalVersion = LegacyProposalPreV46
-	case cmp.Less(0, 2):
-		proposalVersion = LegacyProposalPreV50
-	default:
-		proposalVersion = UpgradeProposalV50
-	}
+	// check if the version is lower than v10.x.x
+	cmp := EvmosVersions([]string{version, "v10.0.0"})
+	isLegacyProposal := !cmp.Less(0, 1)
 
-	return proposalVersion
+	return isLegacyProposal
 }
 
 // RetrieveUpgradesList parses the app/upgrades folder and returns a slice of semver upgrade versions
@@ -82,30 +73,21 @@ func RetrieveUpgradesList(upgradesPath string) ([]string, error) {
 	}
 
 	// preallocate slice to store versions
-	versions := make([]string, 0, len(dirs))
+	versions := make([]string, len(dirs))
 
 	// pattern to find quoted string(upgrade version) in a file e.g. "v10.0.0"
 	pattern := regexp.MustCompile(`"(.*?)"`)
 
-	for _, d := range dirs {
-		if !d.IsDir() {
-			continue
-		}
-
+	for i, d := range dirs {
 		// creating path to upgrade dir file with constant upgrade version
 		constantsPath := fmt.Sprintf("%s/%s/constants.go", upgradesPath, d.Name())
-		if _, err = os.Stat(constantsPath); os.IsNotExist(err) {
-			continue
-		}
-
 		f, err := os.ReadFile(constantsPath)
 		if err != nil {
 			return nil, err
 		}
-
 		v := pattern.FindString(string(f))
 		// v[1 : len(v)-1] subslice used to remove quotes from version string
-		versions = append(versions, v[1:len(v)-1])
+		versions[i] = v[1 : len(v)-1]
 	}
 
 	sort.Sort(EvmosVersions(versions))

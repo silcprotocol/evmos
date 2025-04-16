@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package upgrade
 
@@ -41,64 +54,38 @@ func (m *Manager) CreateExec(cmd []string, containerID string) (string, error) {
 }
 
 // CreateSubmitProposalExec creates a gov tx to submit an upgrade proposal to the chain
-func (m *Manager) CreateSubmitProposalExec(targetVersion, chainID string, upgradeHeight uint, legacy ProposalVersion, flags ...string) (string, error) {
-	cmd := getProposalCmd(legacy, targetVersion, upgradeHeight, chainID)
-	cmd = append(cmd, flags...)
-	// increment proposal counter to use proposal number for deposit && voting
-	m.proposalCounter++
-	return m.CreateExec(cmd, m.ContainerID())
-}
-
-func getProposalCmd(legacy ProposalVersion, targetVersion string, upgradeHeight uint, chainID string) []string {
-	var cmd []string
-	if legacy == UpgradeProposalV50 {
-		cmd = []string{
-			"evmosd",
-			"tx",
-			"upgrade",
-			"software-upgrade",
-			targetVersion,
-			"--summary=\"Test upgrade proposal\"",
-			"--no-validate",
-		}
+func (m *Manager) CreateSubmitProposalExec(targetVersion, chainID string, upgradeHeight uint, legacy bool, flags ...string) (string, error) {
+	var upgradeInfo, proposalType string
+	if legacy {
+		upgradeInfo = "--no-validate"
+		proposalType = "submit-legacy-proposal"
 	} else {
-		var upgradeInfo, proposalType string
-
-		switch legacy {
-		case LegacyProposalPreV50:
-			upgradeInfo = "--no-validate"
-			proposalType = "submit-legacy-proposal"
-		case LegacyProposalPreV46:
-			upgradeInfo = "--upgrade-info=\"\""
-			proposalType = "submit-proposal"
-		default:
-			panic(fmt.Sprintf("invalid legacy proposal version: %v", legacy))
-		}
-
-		cmd = []string{
-			"evmosd",
-			"tx",
-			"gov",
-			proposalType,
-			"software-upgrade",
-			targetVersion,
-			upgradeInfo,
-		}
+		upgradeInfo = "--upgrade-info=\"\""
+		proposalType = "submit-proposal"
 	}
-
-	cmd = append(cmd,
+	cmd := []string{
+		"evmosd",
+		"tx",
+		"gov",
+		proposalType,
+		"software-upgrade",
+		targetVersion,
 		"--title=\"TEST\"",
 		"--deposit=10000000aevmos",
 		"--description=\"Test upgrade proposal\"",
 		fmt.Sprintf("--upgrade-height=%d", upgradeHeight),
+		upgradeInfo,
 		fmt.Sprintf("--chain-id=%s", chainID),
 		"--from=mykey",
+		"-b=block",
 		"--yes",
 		"--keyring-backend=test",
-		"--output=text",
-	)
-
-	return cmd
+		"--log_format=json",
+	}
+	cmd = append(cmd, flags...)
+	// increment proposal counter to use proposal number for deposit && voting
+	m.proposalCounter++
+	return m.CreateExec(cmd, m.ContainerID())
 }
 
 // CreateDepositProposalExec creates a gov tx to deposit for the proposal with the given id
@@ -112,9 +99,10 @@ func (m *Manager) CreateDepositProposalExec(chainID string, id int) (string, err
 		"10000000aevmos",
 		"--from=mykey",
 		fmt.Sprintf("--chain-id=%s", chainID),
+		"-b=block",
 		"--yes",
 		"--keyring-backend=test",
-		"--output=text",
+		"--log_format=json",
 		"--fees=500aevmos",
 		"--gas=500000",
 	}
@@ -133,9 +121,10 @@ func (m *Manager) CreateVoteProposalExec(chainID string, id int, flags ...string
 		"yes",
 		"--from=mykey",
 		fmt.Sprintf("--chain-id=%s", chainID),
+		"-b=block",
 		"--yes",
 		"--keyring-backend=test",
-		"--output=text",
+		"--log_format=json",
 	}
 	cmd = append(cmd, flags...)
 	return m.CreateExec(cmd, m.ContainerID())

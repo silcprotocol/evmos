@@ -1,17 +1,30 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package keeper
 
 import (
 	"math/big"
 
-	"cosmossdk.io/log"
-	storetypes "cosmossdk.io/store/types"
 	"github.com/cosmos/cosmos-sdk/codec"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	"github.com/tendermint/tendermint/libs/log"
 
-	"github.com/evmos/evmos/v20/x/feemarket/types"
+	"github.com/evmos/evmos/v12/x/feemarket/types"
 )
 
 // KeyPrefixBaseFeeV1 TODO: Temporary will be removed with params refactor PR
@@ -69,13 +82,22 @@ func (k Keeper) SetBlockGasWanted(ctx sdk.Context, gas uint64) {
 // GetBlockGasWanted returns the last block gas wanted value from the store.
 func (k Keeper) GetBlockGasWanted(ctx sdk.Context) uint64 {
 	store := ctx.KVStore(k.storeKey)
-	return sdk.BigEndianToUint64(store.Get(types.KeyPrefixBlockGasWanted))
+	bz := store.Get(types.KeyPrefixBlockGasWanted)
+	if len(bz) == 0 {
+		return 0
+	}
+
+	return sdk.BigEndianToUint64(bz)
 }
 
 // GetTransientGasWanted returns the gas wanted in the current block from transient store.
 func (k Keeper) GetTransientGasWanted(ctx sdk.Context) uint64 {
 	store := ctx.TransientStore(k.transientKey)
-	return sdk.BigEndianToUint64(store.Get(types.KeyPrefixTransientBlockGasWanted))
+	bz := store.Get(types.KeyPrefixTransientBlockGasWanted)
+	if len(bz) == 0 {
+		return 0
+	}
+	return sdk.BigEndianToUint64(bz)
 }
 
 // SetTransientBlockGasWanted sets the block gas wanted to the transient store.

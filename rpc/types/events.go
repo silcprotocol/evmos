@@ -1,17 +1,30 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package types
 
 import (
 	"fmt"
 	"strconv"
 
-	abci "github.com/cometbft/cometbft/abci/types"
-	tmrpctypes "github.com/cometbft/cometbft/rpc/core/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/evmos/evmos/v20/types"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/types"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
+	abci "github.com/tendermint/tendermint/abci/types"
+	tmrpctypes "github.com/tendermint/tendermint/rpc/core/types"
 )
 
 // EventFormat is the format version of the events.
@@ -25,9 +38,9 @@ const (
 
 	// Event Format 1 (the format used before PR #1062):
 	// ```
-	// ethereum_tx(amount, ethereumTxHash, [txIndex, txGasUsed], txHash, [recipient], ethereumTxFailed)
+	// ethereum_tx(amount, ethereumTxHash, [txIndex, txGasUsed], txHash, [receipient], ethereumTxFailed)
 	// tx_log(txLog, txLog, ...)
-	// ethereum_tx(amount, ethereumTxHash, [txIndex, txGasUsed], txHash, [recipient], ethereumTxFailed)
+	// ethereum_tx(amount, ethereumTxHash, [txIndex, txGasUsed], txHash, [receipient], ethereumTxFailed)
 	// tx_log(txLog, txLog, ...)
 	// ...
 	// ```
@@ -38,9 +51,9 @@ const (
 	// ethereum_tx(ethereumTxHash, txIndex)
 	// ethereum_tx(ethereumTxHash, txIndex)
 	// ...
-	// ethereum_tx(amount, ethereumTxHash, txIndex, txGasUsed, txHash, [recipient], ethereumTxFailed)
+	// ethereum_tx(amount, ethereumTxHash, txIndex, txGasUsed, txHash, [receipient], ethereumTxFailed)
 	// tx_log(txLog, txLog, ...)
-	// ethereum_tx(amount, ethereumTxHash, txIndex, txGasUsed, txHash, [recipient], ethereumTxFailed)
+	// ethereum_tx(amount, ethereumTxHash, txIndex, txGasUsed, txHash, [receipient], ethereumTxFailed)
 	// tx_log(txLog, txLog, ...)
 	// ...
 	// ```
@@ -76,7 +89,7 @@ type ParsedTxs struct {
 
 // ParseTxResult parse eth tx infos from cosmos-sdk events.
 // It supports two event formats, the formats are described in the comments of the format constants.
-func ParseTxResult(result *abci.ExecTxResult, tx sdk.Tx) (*ParsedTxs, error) {
+func ParseTxResult(result *abci.ResponseDeliverTx, tx sdk.Tx) (*ParsedTxs, error) {
 	format := eventFormatUnknown
 	// the index of current ethereum_tx event in format 1 or the second part of format 2
 	eventIndex := -1
@@ -121,7 +134,7 @@ func ParseTxResult(result *abci.ExecTxResult, tx sdk.Tx) (*ParsedTxs, error) {
 	}
 
 	// some old versions miss some events, fill it with tx result
-	gasUsed := uint64(result.GasUsed) // #nosec G701 G115
+	gasUsed := uint64(result.GasUsed) // #nosec G701
 	if len(p.Txs) == 1 {
 		p.Txs[0].GasUsed = gasUsed
 	}
@@ -150,7 +163,7 @@ func ParseTxIndexerResult(txResult *tmrpctypes.ResultTx, tx sdk.Tx, getter func(
 	if parsedTx == nil {
 		return nil, fmt.Errorf("ethereum tx not found in msgs: block %d, index %d", txResult.Height, txResult.Index)
 	}
-	index := uint32(parsedTx.MsgIndex) // #nosec G701 G115
+	index := uint32(parsedTx.MsgIndex) // #nosec G701
 	return &types.TxResult{
 		Height:            txResult.Height,
 		TxIndex:           txResult.Index,
@@ -230,18 +243,18 @@ func (p *ParsedTxs) AccumulativeGasUsed(msgIndex int) (result uint64) {
 
 // fillTxAttribute parse attributes by name, less efficient than hardcode the index, but more stable against event
 // format changes.
-func fillTxAttribute(tx *ParsedTx, key string, value string) error {
-	switch key {
+func fillTxAttribute(tx *ParsedTx, key []byte, value []byte) error {
+	switch string(key) {
 	case evmtypes.AttributeKeyEthereumTxHash:
-		tx.Hash = common.HexToHash(value)
+		tx.Hash = common.HexToHash(string(value))
 	case evmtypes.AttributeKeyTxIndex:
-		txIndex, err := strconv.ParseUint(value, 10, 31) // #nosec G701
+		txIndex, err := strconv.ParseUint(string(value), 10, 31) // #nosec G701
 		if err != nil {
 			return err
 		}
-		tx.EthTxIndex = int32(txIndex) // #nosec G701 G115
+		tx.EthTxIndex = int32(txIndex) // #nosec G701
 	case evmtypes.AttributeKeyTxGasUsed:
-		gasUsed, err := strconv.ParseUint(value, 10, 64)
+		gasUsed, err := strconv.ParseUint(string(value), 10, 64)
 		if err != nil {
 			return err
 		}

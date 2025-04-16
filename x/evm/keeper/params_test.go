@@ -3,12 +3,13 @@ package keeper_test
 import (
 	"reflect"
 
-	"github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/x/evm/types"
 )
 
 func (suite *KeeperTestSuite) TestParams() {
-	params := types.DefaultParams()
-
+	params := suite.app.EvmKeeper.GetParams(suite.ctx)
+	err := suite.app.EvmKeeper.SetParams(suite.ctx, params)
+	suite.Require().NoError(err)
 	testCases := []struct {
 		name      string
 		paramsFun func() interface{}
@@ -21,43 +22,49 @@ func (suite *KeeperTestSuite) TestParams() {
 				return types.DefaultParams()
 			},
 			func() interface{} {
-				return suite.network.App.EvmKeeper.GetParams(suite.network.GetContext())
+				return suite.app.EvmKeeper.GetParams(suite.ctx)
 			},
 			true,
 		},
 		{
-			"success - Check Access Control Create param is set to restricted and can be retrieved correctly",
+			"success - EvmDenom param is set to \"inj\" and can be retrieved correctly",
 			func() interface{} {
-				params.AccessControl = types.AccessControl{
-					Create: types.AccessControlType{
-						AccessType: types.AccessTypeRestricted,
-					},
-				}
-				err := suite.network.App.EvmKeeper.SetParams(suite.network.GetContext(), params)
+				params.EvmDenom = "inj"
+				err := suite.app.EvmKeeper.SetParams(suite.ctx, params)
 				suite.Require().NoError(err)
-				return types.AccessTypeRestricted
+				return params.EvmDenom
 			},
 			func() interface{} {
-				evmParams := suite.network.App.EvmKeeper.GetParams(suite.network.GetContext())
-				return evmParams.GetAccessControl().Create.AccessType
+				evmParams := suite.app.EvmKeeper.GetParams(suite.ctx)
+				return evmParams.GetEvmDenom()
 			},
 			true,
 		},
 		{
-			"success - Check Access control param is set to restricted and can be retrieved correctly",
+			"success - Check EnableCreate param is set to false and can be retrieved correctly",
 			func() interface{} {
-				params.AccessControl = types.AccessControl{
-					Call: types.AccessControlType{
-						AccessType: types.AccessTypeRestricted,
-					},
-				}
-				err := suite.network.App.EvmKeeper.SetParams(suite.network.GetContext(), params)
+				params.EnableCreate = false
+				err := suite.app.EvmKeeper.SetParams(suite.ctx, params)
 				suite.Require().NoError(err)
-				return types.AccessTypeRestricted
+				return params.EnableCreate
 			},
 			func() interface{} {
-				evmParams := suite.network.App.EvmKeeper.GetParams(suite.network.GetContext())
-				return evmParams.GetAccessControl().Call.AccessType
+				evmParams := suite.app.EvmKeeper.GetParams(suite.ctx)
+				return evmParams.GetEnableCreate()
+			},
+			true,
+		},
+		{
+			"success - Check EnableCall param is set to false and can be retrieved correctly",
+			func() interface{} {
+				params.EnableCall = false
+				err := suite.app.EvmKeeper.SetParams(suite.ctx, params)
+				suite.Require().NoError(err)
+				return params.EnableCall
+			},
+			func() interface{} {
+				evmParams := suite.app.EvmKeeper.GetParams(suite.ctx)
+				return evmParams.GetEnableCall()
 			},
 			true,
 		},
@@ -65,43 +72,33 @@ func (suite *KeeperTestSuite) TestParams() {
 			"success - Check AllowUnprotectedTxs param is set to false and can be retrieved correctly",
 			func() interface{} {
 				params.AllowUnprotectedTxs = false
-				err := suite.network.App.EvmKeeper.SetParams(suite.network.GetContext(), params)
+				err := suite.app.EvmKeeper.SetParams(suite.ctx, params)
 				suite.Require().NoError(err)
 				return params.AllowUnprotectedTxs
 			},
 			func() interface{} {
-				evmParams := suite.network.App.EvmKeeper.GetParams(suite.network.GetContext())
+				evmParams := suite.app.EvmKeeper.GetParams(suite.ctx)
 				return evmParams.GetAllowUnprotectedTxs()
 			},
 			true,
 		},
 		{
-			name: "success - Active precompiles are sorted when setting params",
-			paramsFun: func() interface{} {
-				params.ActiveStaticPrecompiles = []string{
-					"0x0000000000000000000000000000000000000801",
-					"0x0000000000000000000000000000000000000800",
-				}
-				err := suite.network.App.EvmKeeper.SetParams(suite.network.GetContext(), params)
-				suite.Require().NoError(err, "expected no error when setting params")
-
-				// NOTE: return sorted slice here because the precompiles should be sorted when setting the params
-				return []string{
-					"0x0000000000000000000000000000000000000800",
-					"0x0000000000000000000000000000000000000801",
-				}
+			"success - Check ChainConfig param is set to the default value and can be retrieved correctly",
+			func() interface{} {
+				params.ChainConfig = types.DefaultChainConfig()
+				err := suite.app.EvmKeeper.SetParams(suite.ctx, params)
+				suite.Require().NoError(err)
+				return params.ChainConfig
 			},
-			getFun: func() interface{} {
-				evmParams := suite.network.App.EvmKeeper.GetParams(suite.network.GetContext())
-				return evmParams.GetActiveStaticPrecompiles()
+			func() interface{} {
+				evmParams := suite.app.EvmKeeper.GetParams(suite.ctx)
+				return evmParams.GetChainConfig()
 			},
-			expected: true,
+			true,
 		},
 	}
 	for _, tc := range testCases {
 		suite.Run(tc.name, func() {
-			suite.SetupTest()
-
 			outcome := reflect.DeepEqual(tc.paramsFun(), tc.getFun())
 			suite.Require().Equal(tc.expected, outcome)
 		})

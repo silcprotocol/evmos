@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package eth
 
 import (
@@ -9,17 +22,17 @@ import (
 
 	"github.com/ethereum/go-ethereum/rpc"
 
-	"cosmossdk.io/log"
+	"github.com/tendermint/tendermint/libs/log"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
-	"github.com/evmos/evmos/v20/rpc/backend"
+	"github.com/evmos/evmos/v12/rpc/backend"
 
-	rpctypes "github.com/evmos/evmos/v20/rpc/types"
-	"github.com/evmos/evmos/v20/types"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	rpctypes "github.com/evmos/evmos/v12/rpc/types"
+	"github.com/evmos/evmos/v12/types"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 // The Ethereum API allows applications to connect to an Evmos node that is
@@ -321,10 +334,7 @@ func (e *PublicAPI) FeeHistory(blockCount rpc.DecimalOrHex,
 // MaxPriorityFeePerGas returns a suggestion for a gas tip cap for dynamic fee transactions.
 func (e *PublicAPI) MaxPriorityFeePerGas() (*hexutil.Big, error) {
 	e.logger.Debug("eth_maxPriorityFeePerGas")
-	head, err := e.backend.CurrentHeader()
-	if err != nil {
-		return nil, err
-	}
+	head := e.backend.CurrentHeader()
 	tipcap, err := e.backend.SuggestGasTipCap(head.BaseFee)
 	if err != nil {
 		return nil, err
@@ -343,22 +353,22 @@ func (e *PublicAPI) ChainId() (*hexutil.Big, error) { //nolint
 ///////////////////////////////////////////////////////////////////////////////
 
 // GetUncleByBlockHashAndIndex returns the uncle identified by hash and index. Always returns nil.
-func (e *PublicAPI) GetUncleByBlockHashAndIndex(_ common.Hash, _ hexutil.Uint) map[string]interface{} {
+func (e *PublicAPI) GetUncleByBlockHashAndIndex(hash common.Hash, idx hexutil.Uint) map[string]interface{} {
 	return nil
 }
 
 // GetUncleByBlockNumberAndIndex returns the uncle identified by number and index. Always returns nil.
-func (e *PublicAPI) GetUncleByBlockNumberAndIndex(_, _ hexutil.Uint) map[string]interface{} {
+func (e *PublicAPI) GetUncleByBlockNumberAndIndex(number, idx hexutil.Uint) map[string]interface{} {
 	return nil
 }
 
 // GetUncleCountByBlockHash returns the number of uncles in the block identified by hash. Always zero.
-func (e *PublicAPI) GetUncleCountByBlockHash(_ common.Hash) hexutil.Uint {
+func (e *PublicAPI) GetUncleCountByBlockHash(hash common.Hash) hexutil.Uint {
 	return 0
 }
 
 // GetUncleCountByBlockNumber returns the number of uncles in the block identified by number. Always zero.
-func (e *PublicAPI) GetUncleCountByBlockNumber(_ rpctypes.BlockNumber) hexutil.Uint {
+func (e *PublicAPI) GetUncleCountByBlockNumber(blockNum rpctypes.BlockNumber) hexutil.Uint {
 	return 0
 }
 
@@ -416,7 +426,27 @@ func (e *PublicAPI) Sign(address common.Address, data hexutil.Bytes) (hexutil.By
 func (e *PublicAPI) GetTransactionLogs(txHash common.Hash) ([]*ethtypes.Log, error) {
 	e.logger.Debug("eth_getTransactionLogs", "hash", txHash)
 
-	return e.backend.GetTransactionLogs(txHash)
+	hexTx := txHash.Hex()
+	res, err := e.backend.GetTxByEthHash(txHash)
+	if err != nil {
+		e.logger.Debug("tx not found", "hash", hexTx, "error", err.Error())
+		return nil, nil
+	}
+
+	if res.Failed {
+		// failed, return empty logs
+		return nil, nil
+	}
+
+	resBlockResult, err := e.backend.TendermintBlockResultByNumber(&res.Height)
+	if err != nil {
+		e.logger.Debug("block result not found", "number", res.Height, "error", err.Error())
+		return nil, nil
+	}
+
+	// parse tx logs from events
+	index := int(res.MsgIndex) // #nosec G701
+	return backend.TxLogsFromEvents(resBlockResult.TxsResults[res.TxIndex].Events, index)
 }
 
 // SignTypedData signs EIP-712 conformant typed data
@@ -470,13 +500,6 @@ func (e *PublicAPI) GetPendingTransactions() ([]*rpctypes.RPCTransaction, error)
 		return nil, err
 	}
 
-	chainIDHex, err := e.backend.ChainID()
-	if err != nil {
-		return nil, err
-	}
-
-	chainID := chainIDHex.ToInt()
-
 	result := make([]*rpctypes.RPCTransaction, 0, len(txs))
 	for _, tx := range txs {
 		for _, msg := range (*tx).GetMsgs() {
@@ -492,7 +515,7 @@ func (e *PublicAPI) GetPendingTransactions() ([]*rpctypes.RPCTransaction, error)
 				uint64(0),
 				uint64(0),
 				nil,
-				chainID,
+				e.backend.ChainConfig().ChainID,
 			)
 			if err != nil {
 				return nil, err

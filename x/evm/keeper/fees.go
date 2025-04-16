@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package keeper
 
 import (
@@ -15,7 +28,7 @@ import (
 	errortypes "github.com/cosmos/cosmos-sdk/types/errors"
 	authante "github.com/cosmos/cosmos-sdk/x/auth/ante"
 
-	"github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/x/evm/types"
 )
 
 // CheckSenderBalance validates that the tx cost value is positive and that the
@@ -36,13 +49,14 @@ func CheckSenderBalance(
 	if balance.IsNegative() || balance.BigInt().Cmp(cost) < 0 {
 		return errorsmod.Wrapf(
 			errortypes.ErrInsufficientFunds,
-			"sender balance < tx cost (%s < %s)", balance, cost,
+			"sender balance < tx cost (%s < %s)", balance, txData.Cost(),
 		)
 	}
 	return nil
 }
 
-// DeductTxCostsFromUserBalance deducts the fees from the user balance.
+// DeductTxCostsFromUserBalance deducts the fees from the user balance. Returns an
+// error if the specified sender address does not exist or the account balance is not sufficient.
 func (k *Keeper) DeductTxCostsFromUserBalance(
 	ctx sdk.Context,
 	fees sdk.Coins,
@@ -54,10 +68,8 @@ func (k *Keeper) DeductTxCostsFromUserBalance(
 		return errorsmod.Wrapf(err, "account not found for sender %s", from)
 	}
 
-	// Deduct fees from the user balance. Notice that it is used
-	// the bankWrapper to properly convert fees from the 18 decimals
-	// representation to the original one before calling into the bank keeper.
-	if err := authante.DeductFees(k.bankWrapper, ctx, signerAcc, fees); err != nil {
+	// deduct the full gas cost from the user balance
+	if err := authante.DeductFees(k.bankKeeper, ctx, signerAcc, fees); err != nil {
 		return errorsmod.Wrapf(err, "failed to deduct full gas cost %s from the user %s balance", fees, from)
 	}
 

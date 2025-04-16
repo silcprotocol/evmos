@@ -1,63 +1,76 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package types
 
 import (
-	context "context"
 	"math/big"
 
-	"cosmossdk.io/core/address"
-	"cosmossdk.io/math"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
-	"github.com/ethereum/go-ethereum/common"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	"github.com/evmos/evmos/v20/x/evm/core/vm"
 
-	feemarkettypes "github.com/evmos/evmos/v20/x/feemarket/types"
+	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	feemarkettypes "github.com/evmos/evmos/v12/x/feemarket/types"
 )
 
 // AccountKeeper defines the expected account keeper interface
 type AccountKeeper interface {
-	NewAccountWithAddress(ctx context.Context, addr sdk.AccAddress) sdk.AccountI
+	NewAccountWithAddress(ctx sdk.Context, addr sdk.AccAddress) authtypes.AccountI
 	GetModuleAddress(moduleName string) sdk.AccAddress
-	IterateAccounts(ctx context.Context, cb func(account sdk.AccountI) bool)
-	GetAccount(ctx context.Context, addr sdk.AccAddress) sdk.AccountI
-	SetAccount(ctx context.Context, account sdk.AccountI)
-	RemoveAccount(ctx context.Context, account sdk.AccountI)
-	GetParams(ctx context.Context) (params authtypes.Params)
-	GetSequence(ctx context.Context, account sdk.AccAddress) (uint64, error)
-	AddressCodec() address.Codec
+	GetAllAccounts(ctx sdk.Context) (accounts []authtypes.AccountI)
+	IterateAccounts(ctx sdk.Context, cb func(account authtypes.AccountI) bool)
+	GetSequence(sdk.Context, sdk.AccAddress) (uint64, error)
+	GetAccount(ctx sdk.Context, addr sdk.AccAddress) authtypes.AccountI
+	SetAccount(ctx sdk.Context, account authtypes.AccountI)
+	RemoveAccount(ctx sdk.Context, account authtypes.AccountI)
+	GetParams(ctx sdk.Context) (params authtypes.Params)
 }
 
 // BankKeeper defines the expected interface needed to retrieve account balances.
 type BankKeeper interface {
 	authtypes.BankKeeper
-	GetBalance(ctx context.Context, addr sdk.AccAddress, denom string) sdk.Coin
-	SendCoinsFromModuleToAccount(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
-	MintCoins(ctx context.Context, moduleName string, amt sdk.Coins) error
-	BurnCoins(ctx context.Context, moduleName string, amt sdk.Coins) error
+	GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
+	SendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
+	MintCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
+	BurnCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
 }
 
 // StakingKeeper returns the historical headers kept in store.
 type StakingKeeper interface {
-	GetHistoricalInfo(ctx context.Context, height int64) (stakingtypes.HistoricalInfo, error)
-	GetValidatorByConsAddr(ctx context.Context, consAddr sdk.ConsAddress) (stakingtypes.Validator, error)
-	ValidatorAddressCodec() address.Codec
+	GetHistoricalInfo(ctx sdk.Context, height int64) (stakingtypes.HistoricalInfo, bool)
+	GetValidatorByConsAddr(ctx sdk.Context, consAddr sdk.ConsAddress) (validator stakingtypes.Validator, found bool)
 }
 
-// FeeMarketKeeper defines the expected interfaces needed for the feemarket
+// FeeMarketKeeper
 type FeeMarketKeeper interface {
-	GetBaseFee(ctx sdk.Context) math.LegacyDec
+	GetBaseFee(ctx sdk.Context) *big.Int
 	GetParams(ctx sdk.Context) feemarkettypes.Params
-	CalculateBaseFee(ctx sdk.Context) math.LegacyDec
+	AddTransientGasWanted(ctx sdk.Context, gasWanted uint64) (uint64, error)
 }
 
-// Erc20Keeper defines the expected interface needed to instantiate ERC20 precompiles.
-type Erc20Keeper interface {
-	GetERC20PrecompileInstance(ctx sdk.Context, address common.Address) (contract vm.PrecompiledContract, found bool, err error)
+// Event Hooks
+// These can be utilized to customize evm transaction processing.
+
+// EvmHooks event hooks for evm tx processing
+type EvmHooks interface {
+	// Must be called after tx is processed successfully, if return an error, the whole transaction is reverted.
+	PostTxProcessing(ctx sdk.Context, msg core.Message, receipt *ethtypes.Receipt) error
 }
 
 type (
@@ -68,13 +81,3 @@ type (
 		GetParamSetIfExists(ctx sdk.Context, ps LegacyParams)
 	}
 )
-
-// BankWrapper defines the methods required by the wrapper around
-// the Cosmos SDK x/bank keeper that is used to manage an EVM coin
-// with a configurable value for decimals.
-type BankWrapper interface {
-	BankKeeper
-
-	MintAmountToAccount(ctx context.Context, recipientAddr sdk.AccAddress, amt *big.Int) error
-	BurnAmountFromAccount(ctx context.Context, account sdk.AccAddress, amt *big.Int) error
-}

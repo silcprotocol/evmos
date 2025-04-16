@@ -5,26 +5,22 @@ for running end-to-end tests on Evmos.
 It is used for testing chain upgrades,
 as it allows for initializing multiple Evmos chains with different versions.
 
-- [End-to-End Testing Suite](#end-to-end-testing-suite)
-    - [Quick Start](#quick-start)
-    - [Upgrade Process](#upgrade-process)
-    - [Test Suite Structure](#test-suite-structure)
-        - [`e2e` Package](#e2e-package)
-        - [`upgrade` Package](#upgrade-package)
-        - [Version retrieve](#version-retrieve)
-        - [Testing Results](#testing-results)
-    - [Running multiple upgrades](#running-multiple-upgrades)
+- [Quick Start](#quick-start)
+- [Upgrade Process](#upgrade-process)
+- [Test Suite Structure](#test-suite-structure)
+    - [`e2e` Package](#e2e-package)
+    - [`upgrade` Package](#upgrade-package)
+    - [Version retrieve](#version-retrieve)
+    - [Testing Results](#testing-results)
+- [Running multiple upgrades](#running-multiple-upgrades)
 
 ### Quick Start
 
-To run the e2e tests, execute:
+To run a chain upgrade test, execute:
 
 ```shell
-make test-e2e
+make test-upgrade
 ```
-
-This command runs an upgrade test (upgrading a node from an old version to a newer one),
-as well as query and transactions operations against a node with the latest changes.
 
 This logic utilizes parameters that can be set manually(if necessary):
 
@@ -50,7 +46,7 @@ MOUNT_PATH
 
 # '--chain-id' evmos cli parameter, used to start nodes with a specific
 # chain-id and submit proposals
-# By default this is 'evmos_9002-1'
+# By default this is 'evmos_9000-1'
 CHAIN_ID
 ```
 
@@ -58,7 +54,7 @@ To test an upgrade to explicit target version
 and continue to run the upgraded node, use:
 
 ```shell
-make test-e2e E2E_SKIP_CLEANUP=true INITIAL_VERSION=<tag> TARGET_VERSION=<tag>
+make test-upgrade E2E_SKIP_CLEANUP=true INITIAL_VERSION=<tag> TARGET_VERSION=<tag>
 ```
 
 ### Upgrade Process
@@ -139,7 +135,7 @@ from `evmos/app/upgrades`.
 
 ### Testing Results
 
-The `make test-e2e` script will output the test results
+The `make test-upgrade` script will output the test results
 for each testing file.
 In case of a successful upgrade,
 the script will print the following output (example):
@@ -235,5 +231,5 @@ with a forward slash
 and pass them as the `INITIAL_VERSION`.
 
 ```bash
-make test-e2e INITIAL_VERSION=v10.0.1/v11.0.0-rc1 TARGET_VERSION=v11.0.0-rc3
+make test-upgrade INITIAL_VERSION=v10.0.1/v11.0.0-rc1 TARGET_VERSION=v11.0.0-rc3
 ```

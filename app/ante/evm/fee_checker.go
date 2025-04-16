@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package evm
 
 import (
@@ -11,8 +24,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	errortypes "github.com/cosmos/cosmos-sdk/types/errors"
 	authante "github.com/cosmos/cosmos-sdk/x/auth/ante"
-	evmostypes "github.com/evmos/evmos/v20/types"
-	"github.com/evmos/evmos/v20/x/evm/types"
+	anteutils "github.com/evmos/evmos/v12/app/ante/utils"
+	evmostypes "github.com/evmos/evmos/v12/types"
+	"github.com/evmos/evmos/v12/x/evm/types"
 )
 
 // NewDynamicFeeChecker returns a `TxFeeChecker` that applies a dynamic fee to
@@ -23,98 +37,77 @@ import (
 // - when `ExtensionOptionDynamicFeeTx` is omitted, `tipFeeCap` defaults to `MaxInt64`.
 // - when london hardfork is not enabled, it falls back to SDK default behavior (validator min-gas-prices).
 // - Tx priority is set to `effectiveGasPrice / DefaultPriorityReduction`.
-func NewDynamicFeeChecker(fmk FeeMarketKeeper) authante.TxFeeChecker {
-	return func(ctx sdk.Context, tx sdk.Tx) (sdk.Coins, int64, error) {
-		feeTx, ok := tx.(sdk.FeeTx)
-		if !ok {
-			return sdk.Coins{}, 0, errorsmod.Wrap(errortypes.ErrTxDecode, "Tx must be a FeeTx")
-		}
-		// TODO: in the e2e test, if the fee in the genesis transaction meet the baseFee and minGasPrice in the feemarket, we can remove this code
+func NewDynamicFeeChecker(k DynamicFeeEVMKeeper) anteutils.TxFeeChecker {
+	return func(ctx sdk.Context, feeTx sdk.FeeTx) (sdk.Coins, int64, error) {
 		if ctx.BlockHeight() == 0 {
 			// genesis transactions: fallback to min-gas-price logic
 			return checkTxFeeWithValidatorMinGasPrices(ctx, feeTx)
 		}
 
-		return feeChecker(ctx, fmk, feeTx)
-	}
-}
+		params := k.GetParams(ctx)
+		denom := params.EvmDenom
+		ethCfg := params.ChainConfig.EthereumConfig(k.ChainID())
 
-// feeChecker returns the effective fee and priority for a given transaction.
-func feeChecker(
-	ctx sdk.Context,
-	k FeeMarketKeeper,
-	feeTx sdk.FeeTx,
-) (sdk.Coins, int64, error) {
-	denom := types.GetEVMCoinDenom()
-	ethConfig := types.GetEthChainConfig()
+		baseFee := k.GetBaseFee(ctx, ethCfg)
+		if baseFee == nil {
+			// london hardfork is not enabled: fallback to min-gas-prices logic
+			return checkTxFeeWithValidatorMinGasPrices(ctx, feeTx)
+		}
 
-	if !types.IsLondon(ethConfig, ctx.BlockHeight()) {
-		// london hardfork is not enabled: fallback to min-gas-prices logic
-		return checkTxFeeWithValidatorMinGasPrices(ctx, feeTx)
-	}
+		// default to `MaxInt64` when there's no extension option.
+		maxPriorityPrice := sdkmath.NewInt(math.MaxInt64)
 
-	baseFee := k.GetBaseFee(ctx)
-	// if baseFee is nil because it is disabled
-	// or not found, consider it as 0
-	// so the DynamicFeeTx logic can be applied
-	if baseFee.IsNil() {
-		baseFee = sdkmath.LegacyZeroDec()
-	}
-
-	// default to `MaxInt64` when there's no extension option.
-	maxPriorityPrice := sdkmath.LegacyNewDec(math.MaxInt64)
-
-	// get the priority tip cap from the extension option.
-	if hasExtOptsTx, ok := feeTx.(authante.HasExtensionOptionsTx); ok {
-		for _, opt := range hasExtOptsTx.GetExtensionOptions() {
-			if extOpt, ok := opt.GetCachedValue().(*evmostypes.ExtensionOptionDynamicFeeTx); ok {
-				maxPriorityPrice = extOpt.MaxPriorityPrice
-				if maxPriorityPrice.IsNil() {
-					maxPriorityPrice = sdkmath.LegacyZeroDec()
+		// get the priority tip cap from the extension option.
+		if hasExtOptsTx, ok := feeTx.(authante.HasExtensionOptionsTx); ok {
+			for _, opt := range hasExtOptsTx.GetExtensionOptions() {
+				if extOpt, ok := opt.GetCachedValue().(*evmostypes.ExtensionOptionDynamicFeeTx); ok {
+					maxPriorityPrice = extOpt.MaxPriorityPrice
+					break
 				}
-				break
 			}
 		}
+
+		// priority fee cannot be negative
+		if maxPriorityPrice.IsNegative() {
+			return nil, 0, errorsmod.Wrapf(errortypes.ErrInsufficientFee, "max priority price cannot be negative")
+		}
+
+		gas := feeTx.GetGas()
+		feeCoins := feeTx.GetFee()
+		fee := feeCoins.AmountOfNoDenomValidation(denom)
+
+		feeCap := fee.Quo(sdkmath.NewIntFromUint64(gas))
+		baseFeeInt := sdkmath.NewIntFromBigInt(baseFee)
+
+		// Fees not provided (or flag "auto"). Then use the base fee to make the check pass
+		if feeCoins == nil {
+			feeCap = baseFeeInt
+		}
+
+		if feeCap.LT(baseFeeInt) {
+			return nil, 0, errorsmod.Wrapf(errortypes.ErrInsufficientFee, "got: %s%s required: %s%s. Please retry using the --gas-prices or --fees flag", feeCap, denom, baseFeeInt, denom)
+		}
+
+		// calculate the effective gas price using the EIP-1559 logic.
+		effectivePrice := sdkmath.NewIntFromBigInt(types.EffectiveGasPrice(baseFeeInt.BigInt(), feeCap.BigInt(), maxPriorityPrice.BigInt()))
+
+		// NOTE: create a new coins slice without having to validate the denom
+		effectiveFee := sdk.Coins{
+			{
+				Denom:  denom,
+				Amount: effectivePrice.Mul(sdkmath.NewIntFromUint64(gas)),
+			},
+		}
+
+		bigPriority := effectivePrice.Sub(baseFeeInt).Quo(types.DefaultPriorityReduction)
+		priority := int64(math.MaxInt64)
+
+		if bigPriority.IsInt64() {
+			priority = bigPriority.Int64()
+		}
+
+		return effectiveFee, priority, nil
 	}
-
-	// priority fee cannot be negative
-	if maxPriorityPrice.IsNegative() {
-		return nil, 0, errorsmod.Wrapf(errortypes.ErrInsufficientFee, "max priority price cannot be negative")
-	}
-
-	gas := sdkmath.NewIntFromUint64(feeTx.GetGas())
-	if gas.IsZero() {
-		return nil, 0, errorsmod.Wrap(errortypes.ErrInvalidRequest, "gas cannot be zero")
-	}
-
-	feeCoins := feeTx.GetFee()
-	feeAmtDec := sdkmath.LegacyNewDecFromInt(feeCoins.AmountOfNoDenomValidation(denom))
-
-	feeCap := feeAmtDec.QuoInt(gas)
-
-	if feeCap.LT(baseFee) {
-		return nil, 0, errorsmod.Wrapf(errortypes.ErrInsufficientFee, "gas prices too low, got: %s%s required: %s%s. Please retry using a higher gas price or a higher fee", feeCap, denom, baseFee, denom)
-	}
-
-	// calculate the effective gas price using the EIP-1559 logic.
-	effectivePrice := effectiveGasPriceLegacyDec(baseFee, feeCap, maxPriorityPrice)
-
-	// NOTE: create a new coins slice without having to validate the denom
-	effectiveFee := sdk.Coins{
-		{
-			Denom:  denom,
-			Amount: effectivePrice.MulInt(gas).Ceil().RoundInt(),
-		},
-	}
-
-	priorityInt := effectivePrice.Sub(baseFee).QuoInt(types.DefaultPriorityReduction).TruncateInt()
-	priority := int64(math.MaxInt64)
-
-	if priorityInt.IsInt64() {
-		priority = priorityInt.Int64()
-	}
-
-	return effectiveFee, priority, nil
 }
 
 // checkTxFeeWithValidatorMinGasPrices implements the default fee logic, where the minimum price per
@@ -122,7 +115,7 @@ func feeChecker(
 func checkTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.FeeTx) (sdk.Coins, int64, error) {
 	feeCoins := tx.GetFee()
 	minGasPrices := ctx.MinGasPrices()
-	gas := int64(tx.GetGas()) //#nosec G701 G115 -- checked for int overflow on ValidateBasic()
+	gas := int64(tx.GetGas()) //#nosec G701 -- checked for int overflow on ValidateBasic()
 
 	// Ensure that the provided fees meet a minimum threshold for the validator,
 	// if this is a CheckTx. This is only for local mempool purposes, and thus
@@ -132,10 +125,15 @@ func checkTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.FeeTx) (sdk.Coi
 
 		// Determine the required fees by multiplying each required minimum gas
 		// price by the gas limit, where fee = ceil(minGasPrice * gasLimit).
-		glDec := sdkmath.LegacyNewDec(gas)
+		glDec := sdk.NewDec(gas)
 		for i, gp := range minGasPrices {
 			fee := gp.Amount.Mul(glDec)
 			requiredFees[i] = sdk.NewCoin(gp.Denom, fee.Ceil().RoundInt())
+		}
+
+		// Fees not provided (or flag "auto"). Then use the base fee to make the check pass
+		if feeCoins == nil {
+			feeCoins = requiredFees
 		}
 
 		if !feeCoins.IsAnyGTE(requiredFees) {
@@ -167,10 +165,4 @@ func getTxPriority(fees sdk.Coins, gas int64) int64 {
 	}
 
 	return priority
-}
-
-// effectiveGasPriceLegacyDec computes the effective gas price based on eip-1559 rules
-// `effectiveGasPrice = min(baseFee + tipCap, feeCap)` using decimals
-func effectiveGasPriceLegacyDec(baseFee, feeCap, tipCap sdkmath.LegacyDec) sdkmath.LegacyDec {
-	return sdkmath.LegacyMinDec(tipCap.Add(baseFee), feeCap)
 }

@@ -1,18 +1,72 @@
 package keeper_test
 
 import (
-	"fmt"
+	_ "embed"
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
-	"github.com/evmos/evmos/v20/utils"
-	"github.com/evmos/evmos/v20/x/evm/statedb"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	evmostypes "github.com/evmos/evmos/v12/types"
+	"github.com/evmos/evmos/v12/x/evm/keeper"
+	"github.com/evmos/evmos/v12/x/evm/statedb"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 
 	"github.com/ethereum/go-ethereum/common"
+
+	abci "github.com/tendermint/tendermint/abci/types"
 )
+
+func (suite *KeeperTestSuite) TestWithChainID() {
+	testCases := []struct {
+		name       string
+		chainID    string
+		expChainID int64
+		expPanic   bool
+	}{
+		{
+			"fail - chainID is empty",
+			"",
+			0,
+			true,
+		},
+		{
+			"fail - other chainID",
+			"chain_7701-1",
+			0,
+			true,
+		},
+		{
+			"success - Evmos mainnet chain ID",
+			"evmos_9001-2",
+			9001,
+			false,
+		},
+		{
+			"success - Evmos testnet chain ID",
+			"evmos_9000-4",
+			9000,
+			false,
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			keeper := keeper.Keeper{}
+			ctx := suite.ctx.WithChainID(tc.chainID)
+
+			if tc.expPanic {
+				suite.Require().Panics(func() {
+					keeper.WithChainID(ctx)
+				})
+			} else {
+				suite.Require().NotPanics(func() {
+					keeper.WithChainID(ctx)
+					suite.Require().Equal(tc.expChainID, keeper.ChainID().Int64())
+				})
+			}
+		})
+	}
+}
 
 func (suite *KeeperTestSuite) TestBaseFee() {
 	testCases := []struct {
@@ -32,7 +86,10 @@ func (suite *KeeperTestSuite) TestBaseFee() {
 			suite.enableFeemarket = tc.enableFeemarket
 			suite.enableLondonHF = tc.enableLondonHF
 			suite.SetupTest()
-			baseFee := suite.network.App.EvmKeeper.GetBaseFee(suite.network.GetContext())
+			suite.app.EvmKeeper.BeginBlock(suite.ctx, abci.RequestBeginBlock{})
+			params := suite.app.EvmKeeper.GetParams(suite.ctx)
+			ethCfg := params.ChainConfig.EthereumConfig(suite.app.EvmKeeper.ChainID())
+			baseFee := suite.app.EvmKeeper.GetBaseFee(suite.ctx, ethCfg)
 			suite.Require().Equal(tc.expectBaseFee, baseFee)
 		})
 	}
@@ -41,64 +98,42 @@ func (suite *KeeperTestSuite) TestBaseFee() {
 }
 
 func (suite *KeeperTestSuite) TestGetAccountStorage() {
-	var ctx sdk.Context
 	testCases := []struct {
 		name     string
-		malleate func() common.Address
+		malleate func()
+		expRes   []int
 	}{
 		{
-			name:     "Only accounts that are not a contract (no storage)",
-			malleate: nil,
+			"Only one account that's not a contract (no storage)",
+			func() {},
+			[]int{0},
 		},
 		{
-			name: "One contract (with storage) and other EOAs",
-			malleate: func() common.Address {
+			"Two accounts - one contract (with storage), one wallet",
+			func() {
 				supply := big.NewInt(100)
-				contractAddr := suite.DeployTestContract(suite.T(), ctx, suite.keyring.GetAddr(0), supply)
-				return contractAddr
+				suite.DeployTestContract(suite.T(), suite.address, supply)
 			},
+			[]int{2, 0},
 		},
 	}
 
 	for _, tc := range testCases {
 		suite.Run(tc.name, func() {
 			suite.SetupTest()
-			ctx = suite.network.GetContext()
-
-			var contractAddr common.Address
-			if tc.malleate != nil {
-				contractAddr = tc.malleate()
-			}
-
+			tc.malleate()
 			i := 0
-			suite.network.App.AccountKeeper.IterateAccounts(ctx, func(account sdk.AccountI) bool {
-				acc, ok := account.(*authtypes.BaseAccount)
+			suite.app.AccountKeeper.IterateAccounts(suite.ctx, func(account authtypes.AccountI) bool {
+				ethAccount, ok := account.(evmostypes.EthAccountI)
 				if !ok {
-					// Ignore e.g. module accounts
+					// ignore non EthAccounts
 					return false
 				}
 
-				address, err := utils.Bech32ToHexAddr(acc.Address)
-				if err != nil {
-					// NOTE: we panic in the test to see any potential problems
-					// instead of skipping to the next account
-					panic(fmt.Sprintf("failed to convert %s to hex address", err))
-				}
+				addr := ethAccount.EthAddress()
+				storage := suite.app.EvmKeeper.GetAccountStorage(suite.ctx, addr)
 
-				storage := suite.network.App.EvmKeeper.GetAccountStorage(ctx, address)
-
-				if address == contractAddr {
-					suite.Require().NotEqual(0, len(storage),
-						"expected account %d to have non-zero amount of storage slots, got %d",
-						i, len(storage),
-					)
-				} else {
-					suite.Require().Len(storage, 0,
-						"expected account %d to have %d storage slots, got %d",
-						i, 0, len(storage),
-					)
-				}
-
+				suite.Require().Equal(tc.expRes[i], len(storage))
 				i++
 				return false
 			})
@@ -107,14 +142,13 @@ func (suite *KeeperTestSuite) TestGetAccountStorage() {
 }
 
 func (suite *KeeperTestSuite) TestGetAccountOrEmpty() {
-	ctx := suite.network.GetContext()
 	empty := statedb.Account{
 		Balance:  new(big.Int),
 		CodeHash: evmtypes.EmptyCodeHash,
 	}
 
 	supply := big.NewInt(100)
-	contractAddr := suite.DeployTestContract(suite.T(), ctx, suite.keyring.GetAddr(0), supply)
+	contractAddr := suite.DeployTestContract(suite.T(), suite.address, supply)
 
 	testCases := []struct {
 		name     string
@@ -135,7 +169,7 @@ func (suite *KeeperTestSuite) TestGetAccountOrEmpty() {
 
 	for _, tc := range testCases {
 		suite.Run(tc.name, func() {
-			res := suite.network.App.EvmKeeper.GetAccountOrEmpty(ctx, tc.addr)
+			res := suite.app.EvmKeeper.GetAccountOrEmpty(suite.ctx, tc.addr)
 			if tc.expEmpty {
 				suite.Require().Equal(empty, res)
 			} else {

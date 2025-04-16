@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package keeper
 
@@ -7,21 +20,21 @@ import (
 	"context"
 	"strings"
 
+	"github.com/armon/go-metrics"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/hashicorp/go-metrics"
 
-	storetypes "cosmossdk.io/store/types"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"github.com/cosmos/ibc-go/v8/modules/apps/transfer/types"
-	erc20types "github.com/evmos/evmos/v20/x/erc20/types"
+	"github.com/cosmos/ibc-go/v6/modules/apps/transfer/types"
+	erc20types "github.com/evmos/evmos/v12/x/erc20/types"
 )
 
 var _ types.MsgServer = Keeper{}
 
-// Transfer defines a gRPC msg server method for the MsgTransfer message.
-// This implementation overrides the default ICS20 transfer by converting
+// Transfer defines a gRPC msg server method for MsgTransfer.
+// This implementation overrides the default ICS20 transfer's by converting
 // the ERC20 tokens to their Cosmos representation if the token pair has been
 // registered through governance.
 // If user doesn't have enough balance of coin, it will attempt to convert
@@ -29,16 +42,17 @@ var _ types.MsgServer = Keeper{}
 func (k Keeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.MsgTransferResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	// Temporarily save the KV and transient KV gas config. To avoid extra costs for relayers
-	// these two gas config are replaced with empty one and should be restored before exiting this function.
+	// use a zero gas config to avoid extra costs for the relayers
 	kvGasCfg := ctx.KVGasConfig()
 	transientKVGasCfg := ctx.TransientKVGasConfig()
+
+	// use a zero gas config to avoid extra costs for the relayers
 	ctx = ctx.
 		WithKVGasConfig(storetypes.GasConfig{}).
 		WithTransientKVGasConfig(storetypes.GasConfig{})
 
 	defer func() {
-		// Return the KV gas config to initial values
+		// return the KV gas config to initial values
 		ctx = ctx.
 			WithKVGasConfig(kvGasCfg).
 			WithTransientKVGasConfig(transientKVGasCfg)
@@ -50,28 +64,30 @@ func (k Keeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.
 	pairID := k.erc20Keeper.GetTokenPairID(ctx, denom)
 	if len(pairID) == 0 {
 		// no-op: token is not registered so we can proceed with regular transfer
-		return k.Keeper.Transfer(ctx, msg)
+		return k.Keeper.Transfer(sdk.WrapSDKContext(ctx), msg)
 	}
 
 	pair, _ := k.erc20Keeper.GetTokenPair(ctx, pairID)
 	if !pair.Enabled {
 		// no-op: pair is not enabled so we can proceed with regular transfer
-		return k.Keeper.Transfer(ctx, msg)
+		return k.Keeper.Transfer(sdk.WrapSDKContext(ctx), msg)
 	}
 
 	sender := sdk.MustAccAddressFromBech32(msg.Sender)
+	senderAcc := k.accountKeeper.GetAccount(ctx, sender)
+
+	if erc20types.IsModuleAccount(senderAcc) {
+		return k.Keeper.Transfer(sdk.WrapSDKContext(ctx), msg)
+	}
 
 	if !k.erc20Keeper.IsERC20Enabled(ctx) {
 		// no-op: continue with regular transfer
-		return k.Keeper.Transfer(ctx, msg)
+		return k.Keeper.Transfer(sdk.WrapSDKContext(ctx), msg)
 	}
 
 	// update the msg denom to the token pair denom
 	msg.Token.Denom = pair.Denom
 
-	if !pair.IsNativeERC20() {
-		return k.Keeper.Transfer(ctx, msg)
-	}
 	// if the user has enough balance of the Cosmos representation, then we don't need to Convert
 	balance := k.bankKeeper.GetBalance(ctx, sender, pair.Denom)
 	if balance.Amount.GTE(msg.Token.Amount) {
@@ -86,10 +102,9 @@ func (k Keeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.
 			)
 		}()
 
-		return k.Keeper.Transfer(ctx, msg)
+		return k.Keeper.Transfer(sdk.WrapSDKContext(ctx), msg)
 	}
 
-	// Only convert if the pair is a native ERC20
 	// only convert the remaining difference
 	difference := msg.Token.Amount.Sub(balance.Amount)
 
@@ -101,7 +116,7 @@ func (k Keeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.
 	)
 
 	// Use MsgConvertERC20 to convert the ERC20 to a Cosmos IBC Coin
-	if _, err := k.erc20Keeper.ConvertERC20(ctx, msgConvertERC20); err != nil {
+	if _, err := k.erc20Keeper.ConvertERC20(sdk.WrapSDKContext(ctx), msgConvertERC20); err != nil {
 		return nil, err
 	}
 
@@ -115,5 +130,5 @@ func (k Keeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.
 		)
 	}()
 
-	return k.Keeper.Transfer(ctx, msg)
+	return k.Keeper.Transfer(sdk.WrapSDKContext(ctx), msg)
 }

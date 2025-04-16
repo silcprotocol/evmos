@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package pubsub
 
 import (
@@ -8,7 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	coretypes "github.com/cometbft/cometbft/rpc/core/types"
+	coretypes "github.com/tendermint/tendermint/rpc/core/types"
 )
 
 type UnsubscribeFunc func()
@@ -123,20 +136,20 @@ func (m *memEventBus) closeAllSubscribers(name string) {
 	m.subscribersMux.Lock()
 	defer m.subscribersMux.Unlock()
 
-	subscribers := m.subscribers[name]
+	subsribers := m.subscribers[name]
 	delete(m.subscribers, name)
 	// #nosec G705
-	for _, sub := range subscribers {
+	for _, sub := range subsribers {
 		close(sub)
 	}
 }
 
 func (m *memEventBus) publishAllSubscribers(name string, msg coretypes.ResultEvent) {
 	m.subscribersMux.RLock()
-	defer m.subscribersMux.RUnlock()
-	subscribers := m.subscribers[name]
+	subsribers := m.subscribers[name]
+	m.subscribersMux.RUnlock()
 	// #nosec G705
-	for _, sub := range subscribers {
+	for _, sub := range subsribers {
 		select {
 		case sub <- msg:
 		default:

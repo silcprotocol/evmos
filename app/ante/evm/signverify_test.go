@@ -5,21 +5,17 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	ethante "github.com/evmos/evmos/v20/app/ante/evm"
-	"github.com/evmos/evmos/v20/testutil"
-	testutiltx "github.com/evmos/evmos/v20/testutil/tx"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	ethante "github.com/evmos/evmos/v12/app/ante/evm"
+	"github.com/evmos/evmos/v12/testutil"
+	testutiltx "github.com/evmos/evmos/v12/testutil/tx"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 func (suite *AnteTestSuite) TestEthSigVerificationDecorator() {
 	addr, privKey := testutiltx.NewAddrKey()
 
-	evmChainID := evmtypes.GetEthChainConfig().ChainID
-
-	ethSigner := ethtypes.LatestSignerForChainID(evmChainID)
-
 	ethContractCreationTxParams := &evmtypes.EvmTxArgs{
-		ChainID:  evmChainID,
+		ChainID:  suite.app.EvmKeeper.ChainID(),
 		Nonce:    1,
 		Amount:   big.NewInt(10),
 		GasLimit: 1000,
@@ -27,16 +23,16 @@ func (suite *AnteTestSuite) TestEthSigVerificationDecorator() {
 	}
 	signedTx := evmtypes.NewTx(ethContractCreationTxParams)
 	signedTx.From = addr.Hex()
-	err := signedTx.Sign(ethSigner, testutiltx.NewSigner(privKey))
+	err := signedTx.Sign(suite.ethSigner, testutiltx.NewSigner(privKey))
 	suite.Require().NoError(err)
 
-	unprotectedEthTxParams := &evmtypes.EvmTxArgs{
+	uprotectedEthTxParams := &evmtypes.EvmTxArgs{
 		Nonce:    1,
 		Amount:   big.NewInt(10),
 		GasLimit: 1000,
 		GasPrice: big.NewInt(1),
 	}
-	unprotectedTx := evmtypes.NewTx(unprotectedEthTxParams)
+	unprotectedTx := evmtypes.NewTx(uprotectedEthTxParams)
 	unprotectedTx.From = addr.Hex()
 	err = unprotectedTx.Sign(ethtypes.HomesteadSigner{}, testutiltx.NewSigner(privKey))
 	suite.Require().NoError(err)
@@ -70,12 +66,12 @@ func (suite *AnteTestSuite) TestEthSigVerificationDecorator() {
 
 	for _, tc := range testCases {
 		suite.Run(tc.name, func() {
-			suite.WithEvmParamsOptions(func(params *evmtypes.Params) {
+			suite.evmParamsOption = func(params *evmtypes.Params) {
 				params.AllowUnprotectedTxs = tc.allowUnprotectedTxs
-			})
+			}
 			suite.SetupTest()
-			dec := ethante.NewEthSigVerificationDecorator(suite.GetNetwork().App.EvmKeeper)
-			_, err := dec.AnteHandle(suite.GetNetwork().GetContext().WithIsReCheckTx(tc.reCheckTx), tc.tx, false, testutil.NextFn)
+			dec := ethante.NewEthSigVerificationDecorator(suite.app.EvmKeeper)
+			_, err := dec.AnteHandle(suite.ctx.WithIsReCheckTx(tc.reCheckTx), tc.tx, false, testutil.NextFn)
 
 			if tc.expPass {
 				suite.Require().NoError(err)
@@ -84,5 +80,5 @@ func (suite *AnteTestSuite) TestEthSigVerificationDecorator() {
 			}
 		})
 	}
-	suite.WithEvmParamsOptions(nil)
+	suite.evmParamsOption = nil
 }

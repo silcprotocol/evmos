@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package cosmos
 
 import (
@@ -19,11 +32,11 @@ import (
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
-	"github.com/evmos/evmos/v20/crypto/ethsecp256k1"
-	"github.com/evmos/evmos/v20/ethereum/eip712"
-	"github.com/evmos/evmos/v20/types"
+	"github.com/evmos/evmos/v12/crypto/ethsecp256k1"
+	"github.com/evmos/evmos/v12/ethereum/eip712"
+	"github.com/evmos/evmos/v12/types"
 
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 )
 
 var evmosCodec codec.ProtoCodecMarshaler
@@ -41,15 +54,18 @@ func init() {
 // CONTRACT: Pubkeys are set in context for all signers before this decorator runs
 // CONTRACT: Tx must implement SigVerifiableTx interface
 type LegacyEip712SigVerificationDecorator struct {
-	ak evmtypes.AccountKeeper
+	ak              evmtypes.AccountKeeper
+	signModeHandler authsigning.SignModeHandler
 }
 
 // Deprecated: NewLegacyEip712SigVerificationDecorator creates a new LegacyEip712SigVerificationDecorator
 func NewLegacyEip712SigVerificationDecorator(
 	ak evmtypes.AccountKeeper,
+	signModeHandler authsigning.SignModeHandler,
 ) LegacyEip712SigVerificationDecorator {
 	return LegacyEip712SigVerificationDecorator{
-		ak: ak,
+		ak:              ak,
+		signModeHandler: signModeHandler,
 	}
 }
 
@@ -82,10 +98,7 @@ func (svd LegacyEip712SigVerificationDecorator) AnteHandle(ctx sdk.Context,
 		return ctx, err
 	}
 
-	signerAddrs, err := sigTx.GetSigners()
-	if err != nil {
-		return ctx, err
-	}
+	signerAddrs := sigTx.GetSigners()
 
 	// EIP712 allows just one signature
 	if len(sigs) != 1 {
@@ -143,7 +156,7 @@ func (svd LegacyEip712SigVerificationDecorator) AnteHandle(ctx sdk.Context,
 		return next(ctx, tx, simulate)
 	}
 
-	if err := VerifySignature(pubKey, signerData, sig.Data, authSignTx); err != nil {
+	if err := VerifySignature(pubKey, signerData, sig.Data, svd.signModeHandler, authSignTx); err != nil {
 		errMsg := fmt.Errorf("signature verification failed; please verify account number (%d) and chain-id (%s): %w", accNum, chainID, err)
 		return ctx, errorsmod.Wrap(errortypes.ErrUnauthorized, errMsg.Error())
 	}
@@ -157,6 +170,7 @@ func VerifySignature(
 	pubKey cryptotypes.PubKey,
 	signerData authsigning.SignerData,
 	sigData signing.SignatureData,
+	_ authsigning.SignModeHandler,
 	tx authsigning.Tx,
 ) error {
 	switch data := sigData.(type) {
@@ -187,7 +201,7 @@ func VerifySignature(
 				Amount: tx.GetFee(),
 				Gas:    tx.GetGas(),
 			},
-			msgs, tx.GetMemo(),
+			msgs, tx.GetMemo(), tx.GetTip(),
 		)
 
 		signerChainID, err := types.ParseChainID(signerData.ChainID)
@@ -197,11 +211,11 @@ func VerifySignature(
 
 		txWithExtensions, ok := tx.(authante.HasExtensionOptionsTx)
 		if !ok {
-			return errorsmod.Wrap(errortypes.ErrUnknownExtensionOptions, "tx doesn't contain any extensions")
+			return errorsmod.Wrap(errortypes.ErrUnknownExtensionOptions, "tx doesnt contain any extensions")
 		}
 		opts := txWithExtensions.GetExtensionOptions()
 		if len(opts) != 1 {
-			return errorsmod.Wrap(errortypes.ErrUnknownExtensionOptions, "tx doesn't contain expected amount of extension options")
+			return errorsmod.Wrap(errortypes.ErrUnknownExtensionOptions, "tx doesnt contain expected amount of extension options")
 		}
 
 		extOpt, ok := opts[0].GetCachedValue().(*types.ExtensionOptionsWeb3Tx)

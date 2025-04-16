@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package main
 
@@ -9,17 +22,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	evmostypes "github.com/evmos/evmos/v20/types"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
-	cfg "github.com/cometbft/cometbft/config"
-	"github.com/cometbft/cometbft/libs/cli"
-	cmtrand "github.com/cometbft/cometbft/libs/rand"
-	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/cosmos/cosmos-sdk/x/genutil/types"
+	cfg "github.com/tendermint/tendermint/config"
+	"github.com/tendermint/tendermint/libs/cli"
+	tmos "github.com/tendermint/tendermint/libs/os"
+	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/go-bip39"
 
@@ -83,25 +96,29 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			// Set peers in and out to an 8:1 ratio to prevent choking
 			config.P2P.MaxNumInboundPeers = 240
 			config.P2P.MaxNumOutboundPeers = 30
+
+			// Set default seeds
+			seeds := []string{
+				"40f4fac63da8b1ce8f850b0fa0f79b2699d2ce72@seed.evmos.jerrychong.com:26656",                 // jerrychong
+				"e3e11fca4ecf4035a751f3fea90e3a821e274487@bd-evmos-mainnet-seed-node-01.bdnodes.net:26656", // blockdaemon
+				"fc86e7e75c5d2e4699535e1b1bec98ae55b16826@bd-evmos-mainnet-seed-node-02.bdnodes.net:26656", // blockdaemon
+			}
+			config.P2P.Seeds = strings.Join(seeds, ",")
+
 			config.Mempool.Size = 10000
 			config.StateSync.TrustPeriod = 112 * time.Hour
 
 			config.SetRoot(clientCtx.HomeDir)
 
 			chainID, _ := cmd.Flags().GetString(flags.FlagChainID)
-			switch {
-			case chainID != "":
-			case clientCtx.ChainID != "":
-				chainID = clientCtx.ChainID
-			default:
-				chainID = fmt.Sprintf("evmos_9000-%v", cmtrand.Str(6))
+			if chainID == "" {
+				chainID = fmt.Sprintf("evmos_9000-%v", tmrand.Str(6))
 			}
 
 			// Get bip39 mnemonic
 			var mnemonic string
-
-			recoverKey, _ := cmd.Flags().GetBool(genutilcli.FlagRecover)
-			if recoverKey {
+			recover, _ := cmd.Flags().GetBool(genutilcli.FlagRecover)
+			if recover {
 				inBuf := bufio.NewReader(cmd.InOrStdin())
 				value, err := input.GetString("Enter your bip39 mnemonic", inBuf)
 				if err != nil {
@@ -123,50 +140,34 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 
 			genFile := config.GenesisFile()
 			overwrite, _ := cmd.Flags().GetBool(genutilcli.FlagOverwrite)
-			defaultDenom, _ := cmd.Flags().GetString(genutilcli.FlagDefaultBondDenom)
 
-			// use os.Stat to check if the file exists
-			_, err = os.Stat(genFile)
-			if !overwrite && !os.IsNotExist(err) {
+			if !overwrite && tmos.FileExists(genFile) {
 				return fmt.Errorf("genesis.json file already exists: %v", genFile)
-			}
-
-			// Overwrites the SDK default denom for side-effects
-			if defaultDenom != "" {
-				sdk.DefaultBondDenom = defaultDenom
 			}
 
 			appState, err := json.MarshalIndent(mbm.DefaultGenesis(cdc), "", " ")
 			if err != nil {
-				return errors.Wrap(err, "Failed to marshal default genesis state")
+				return errors.Wrap(err, "Failed to marshall default genesis state")
 			}
 
-			appGenesis := &types.AppGenesis{}
+			genDoc := &types.GenesisDoc{}
 			if _, err := os.Stat(genFile); err != nil {
 				if !os.IsNotExist(err) {
 					return err
 				}
 			} else {
-				appGenesis, err = types.AppGenesisFromFile(genFile)
+				genDoc, err = types.GenesisDocFromFile(genFile)
 				if err != nil {
 					return errors.Wrap(err, "Failed to read genesis doc from file")
 				}
 			}
 
-			// Get initial height
-			initHeight, _ := cmd.Flags().GetInt64(flags.FlagInitHeight)
+			genDoc.ChainID = chainID
+			genDoc.Validators = nil
+			genDoc.AppState = appState
 
-			appGenesis.AppName = version.AppName
-			appGenesis.AppVersion = version.Version
-			appGenesis.ChainID = chainID
-			appGenesis.AppState = appState
-			appGenesis.InitialHeight = initHeight
-			appGenesis.Consensus = &types.ConsensusGenesis{
-				Validators: nil,
-			}
-
-			if err := genutil.ExportGenesisFile(appGenesis, genFile); err != nil {
-				return errors.Wrap(err, "Failed to export genesis file")
+			if err := genutil.ExportGenesisFile(genDoc, genFile); err != nil {
+				return errors.Wrap(err, "Failed to export gensis file")
 			}
 
 			toPrint := newPrintInfo(config.Moniker, chainID, nodeID, "", appState)
@@ -180,7 +181,6 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 	cmd.Flags().BoolP(genutilcli.FlagOverwrite, "o", false, "overwrite the genesis.json file")
 	cmd.Flags().Bool(genutilcli.FlagRecover, false, "provide seed phrase to recover existing key instead of creating")
 	cmd.Flags().String(flags.FlagChainID, "", "genesis file chain-id, if left blank will be randomly created")
-	cmd.Flags().String(genutilcli.FlagDefaultBondDenom, evmostypes.BaseDenom, "defines the default denom to use in genesis file")
 
 	return cmd
 }

@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package eip712
 
 import (
@@ -13,7 +26,7 @@ import (
 	txTypes "github.com/cosmos/cosmos-sdk/types/tx"
 
 	apitypes "github.com/ethereum/go-ethereum/signer/core/apitypes"
-	evmos "github.com/evmos/evmos/v20/types"
+	evmos "github.com/evmos/evmos/v12/types"
 )
 
 type aminoMessage struct {
@@ -90,11 +103,7 @@ func legacyDecodeAminoSignDoc(signDocBytes []byte) (apitypes.TypedData, error) {
 	msg := msgs[0]
 
 	// By convention, the fee payer is the first address in the list of signers.
-	signers, _, err := protoCodec.GetMsgV1Signers(msg)
-	if err != nil {
-		return apitypes.TypedData{}, err
-	}
-	feePayer := signers[0]
+	feePayer := msg.GetSigners()[0]
 	feeDelegation := &FeeDelegationOptions{
 		FeePayer: feePayer,
 	}
@@ -179,14 +188,12 @@ func legacyDecodeProtobufSignDoc(signDocBytes []byte) (apitypes.TypedData, error
 		Gas:    authInfo.Fee.GasLimit,
 	}
 
-	signers, _, err := protoCodec.GetMsgV1Signers(msg)
-	if err != nil {
-		return apitypes.TypedData{}, err
-	}
-	feePayer := signers[0]
+	feePayer := msg.GetSigners()[0]
 	feeDelegation := &FeeDelegationOptions{
 		FeePayer: feePayer,
 	}
+
+	tip := authInfo.Tip
 
 	// WrapTxToTypedData expects the payload as an Amino Sign Doc
 	signBytes := legacytx.StdSignBytes(
@@ -197,6 +204,7 @@ func legacyDecodeProtobufSignDoc(signDocBytes []byte) (apitypes.TypedData, error
 		*stdFee,
 		msgs,
 		body.Memo,
+		tip,
 	)
 
 	typedData, err := LegacyWrapTxToTypedData(
@@ -229,17 +237,13 @@ func legacyValidatePayloadMessages(msgs []sdk.Msg) error {
 			return err
 		}
 
-		signers, _, err := protoCodec.GetMsgV1Signers(m)
-		if err != nil {
-			return err
-		}
-		if len(signers) != 1 {
+		if len(m.GetSigners()) != 1 {
 			return errors.New("unable to build EIP-712 payload: expect exactly 1 signer")
 		}
 
 		if i == 0 {
 			msgType = t
-			msgSigner = signers[0]
+			msgSigner = m.GetSigners()[0]
 			continue
 		}
 
@@ -247,7 +251,7 @@ func legacyValidatePayloadMessages(msgs []sdk.Msg) error {
 			return errors.New("unable to build EIP-712 payload: different types of messages detected")
 		}
 
-		if !msgSigner.Equals(sdk.AccAddress(signers[0])) {
+		if !msgSigner.Equals(m.GetSigners()[0]) {
 			return errors.New("unable to build EIP-712 payload: multiple signers detected")
 		}
 	}

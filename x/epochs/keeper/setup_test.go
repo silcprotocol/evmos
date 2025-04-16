@@ -1,54 +1,41 @@
 package keeper_test
 
 import (
-	"time"
+	"testing"
 
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/grpc"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/keyring"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 
-	"github.com/evmos/evmos/v20/x/epochs/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/stretchr/testify/suite"
+
+	evm "github.com/evmos/evmos/v12/x/evm/types"
+
+	"github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/x/epochs/types"
 )
 
-const (
-	day             = time.Hour * 24
-	week            = time.Hour * 24 * 7
-	month           = time.Hour * 24 * 31
-	monthIdentifier = "month"
-)
-
-// KeeperTestSuite is the implementation of the test suite for the
-// Epochs module.
 type KeeperTestSuite struct {
-	network *network.UnitTestNetwork
-	keyring keyring.Keyring
-	handler grpc.Handler
+	suite.Suite
+
+	ctx            sdk.Context
+	app            *app.Evmos
+	queryClientEvm evm.QueryClient
+	queryClient    types.QueryClient
+	consAddress    sdk.ConsAddress
 }
 
-// SetupTest is the setup function for epoch module tests. If epochsInfo is provided empty
-// the default genesis for the epoch module is used.
-func SetupTest(epochsInfo []types.EpochInfo) *KeeperTestSuite {
-	keys := keyring.New(1)
+var s *KeeperTestSuite
 
-	customGenesis := network.CustomGenesisState{}
-	epochsGenesis := types.DefaultGenesisState()
+func TestKeeperTestSuite(t *testing.T) {
+	s = new(KeeperTestSuite)
+	suite.Run(t, s)
 
-	if len(epochsInfo) > 0 {
-		epochsGenesis = types.NewGenesisState(epochsInfo)
-	}
+	// Run Ginkgo integration tests
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Keeper Suite")
+}
 
-	customGenesis[types.ModuleName] = epochsGenesis
-
-	nw := network.NewUnitTestNetwork(
-		network.WithPreFundedAccounts(keys.GetAllAccAddrs()...),
-		network.WithCustomGenesis(customGenesis),
-	)
-
-	gh := grpc.NewIntegrationHandler(nw)
-
-	return &KeeperTestSuite{
-		network: nw,
-		keyring: keys,
-		handler: gh,
-	}
+func (suite *KeeperTestSuite) SetupTest() {
+	suite.DoSetupTest(suite.T())
 }

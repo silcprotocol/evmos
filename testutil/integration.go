@@ -1,5 +1,18 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package testutil
 
@@ -7,14 +20,13 @@ import (
 	"strconv"
 
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/math"
-	abci "github.com/cometbft/cometbft/abci/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	govv1beta1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	abci "github.com/tendermint/tendermint/abci/types"
 
-	"github.com/evmos/evmos/v20/app"
-	"github.com/evmos/evmos/v20/crypto/ethsecp256k1"
+	"github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/crypto/ethsecp256k1"
 )
 
 // SubmitProposal delivers a submit proposal tx for a given gov content.
@@ -30,7 +42,7 @@ func SubmitProposal(
 	accountAddress := sdk.AccAddress(pk.PubKey().Address().Bytes())
 	stakeDenom := stakingtypes.DefaultParams().BondDenom
 
-	deposit := sdk.NewCoins(sdk.NewCoin(stakeDenom, math.NewInt(100000000)))
+	deposit := sdk.NewCoins(sdk.NewCoin(stakeDenom, sdk.NewInt(100000000)))
 	msg, err := govv1beta1.NewMsgSubmitProposal(content, deposit, accountAddress)
 	if err != nil {
 		return id, err
@@ -41,11 +53,11 @@ func SubmitProposal(
 	}
 
 	submitEvent := res.GetEvents()[eventNum]
-	if submitEvent.Type != "submit_proposal" || submitEvent.Attributes[0].Key != "proposal_id" {
+	if submitEvent.Type != "submit_proposal" || string(submitEvent.Attributes[0].Key) != "proposal_id" {
 		return id, errorsmod.Wrapf(errorsmod.Error{}, "eventNumber %d in SubmitProposal calls %s instead of submit_proposal", eventNum, submitEvent.Type)
 	}
 
-	return strconv.ParseUint(submitEvent.Attributes[0].Value, 10, 64)
+	return strconv.ParseUint(string(submitEvent.Attributes[0].Value), 10, 64)
 }
 
 // Delegate delivers a delegate tx
@@ -55,9 +67,15 @@ func Delegate(
 	priv *ethsecp256k1.PrivKey,
 	delegateAmount sdk.Coin,
 	validator stakingtypes.Validator,
-) (abci.ExecTxResult, error) {
+) (abci.ResponseDeliverTx, error) {
 	accountAddress := sdk.AccAddress(priv.PubKey().Address().Bytes())
-	delegateMsg := stakingtypes.NewMsgDelegate(accountAddress.String(), validator.OperatorAddress, delegateAmount)
+
+	val, err := sdk.ValAddressFromBech32(validator.OperatorAddress)
+	if err != nil {
+		return abci.ResponseDeliverTx{}, err
+	}
+
+	delegateMsg := stakingtypes.NewMsgDelegate(accountAddress, val, delegateAmount)
 	return DeliverTx(ctx, appEvmos, priv, nil, delegateMsg)
 }
 
@@ -68,7 +86,7 @@ func Vote(
 	priv *ethsecp256k1.PrivKey,
 	proposalID uint64,
 	voteOption govv1beta1.VoteOption,
-) (abci.ExecTxResult, error) {
+) (abci.ResponseDeliverTx, error) {
 	accountAddress := sdk.AccAddress(priv.PubKey().Address().Bytes())
 
 	voteMsg := govv1beta1.NewMsgVote(accountAddress, proposalID, voteOption)

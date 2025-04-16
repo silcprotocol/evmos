@@ -12,11 +12,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	proto "github.com/cosmos/gogoproto/proto"
+	proto "github.com/gogo/protobuf/proto"
 
-	"github.com/evmos/evmos/v20/encoding"
-	utiltx "github.com/evmos/evmos/v20/testutil/tx"
-	evmtypes "github.com/evmos/evmos/v20/x/evm/types"
+	"github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/encoding"
+	utiltx "github.com/evmos/evmos/v12/testutil/tx"
+	evmtypes "github.com/evmos/evmos/v12/x/evm/types"
 
 	"github.com/stretchr/testify/require"
 )
@@ -33,9 +34,9 @@ func TestEvmDataEncoding(t *testing.T) {
 		Ret: ret,
 	}
 
-	anyData := codectypes.UnsafePackAny(data)
+	any := codectypes.UnsafePackAny(data)
 	txData := &sdk.TxMsgData{
-		MsgResponses: []*codectypes.Any{anyData},
+		MsgResponses: []*codectypes.Any{any},
 	}
 
 	txDataBz, err := proto.Marshal(txData)
@@ -52,7 +53,7 @@ func TestUnwrapEthererumMsg(t *testing.T) {
 	_, err := evmtypes.UnwrapEthereumMsg(nil, common.Hash{})
 	require.NotNil(t, err)
 
-	encodingConfig := encoding.MakeConfig()
+	encodingConfig := encoding.MakeConfig(app.ModuleBasics)
 	clientCtx := client.Context{}.WithTxConfig(encodingConfig.TxConfig)
 	builder, _ := clientCtx.TxConfig.NewTxBuilder().(authtx.ExtensionOptionsTxBuilder)
 
@@ -85,7 +86,7 @@ func TestBinSearch(t *testing.T) {
 		target := uint64(21000)
 		return gas < target, nil, nil
 	}
-	failedExecutable := func(_ uint64) (bool, *evmtypes.MsgEthereumTxResponse, error) {
+	failedExecutable := func(gas uint64) (bool, *evmtypes.MsgEthereumTxResponse, error) {
 		return true, nil, errors.New("contract failed")
 	}
 

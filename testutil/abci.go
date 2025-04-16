@@ -1,22 +1,34 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 package testutil
 
 import (
-	"fmt"
 	"time"
 
 	errorsmod "cosmossdk.io/errors"
 	sdkmath "cosmossdk.io/math"
-	abci "github.com/cometbft/cometbft/abci/types"
-	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
-	cmttypes "github.com/cometbft/cometbft/types"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	errortypes "github.com/cosmos/cosmos-sdk/types/errors"
+	abci "github.com/tendermint/tendermint/abci/types"
+	tmtypes "github.com/tendermint/tendermint/types"
 
-	"github.com/evmos/evmos/v20/app"
-	"github.com/evmos/evmos/v20/testutil/tx"
+	"github.com/evmos/evmos/v12/app"
+	"github.com/evmos/evmos/v12/encoding"
+	"github.com/evmos/evmos/v12/testutil/tx"
 )
 
 // Commit commits a block at a given time. Reminder: At the end of each
@@ -25,35 +37,33 @@ import (
 //  2. DeliverTx
 //  3. EndBlock
 //  4. Commit
-func Commit(ctx sdk.Context, app *app.Evmos, t time.Duration, vs *cmttypes.ValidatorSet) (sdk.Context, error) {
-	header, err := commit(ctx, app, t, vs)
-	if err != nil {
-		return ctx, err
+func Commit(ctx sdk.Context, app *app.Evmos, t time.Duration, vs *tmtypes.ValidatorSet) (sdk.Context, error) {
+	header := ctx.BlockHeader()
+
+	if vs != nil {
+		res := app.EndBlock(abci.RequestEndBlock{Height: header.Height})
+
+		nextVals, err := applyValSetChanges(vs, res.ValidatorUpdates)
+		if err != nil {
+			return ctx, err
+		}
+		header.ValidatorsHash = vs.Hash()
+		header.NextValidatorsHash = nextVals.Hash()
+	} else {
+		app.EndBlocker(ctx, abci.RequestEndBlock{Height: header.Height})
 	}
 
-	return ctx.WithBlockHeader(header), nil
-}
+	_ = app.Commit()
 
-// CommitAndCreateNewCtx commits a block at a given time creating a ctx with the current settings
-// This is useful to keep test settings that could be affected by EndBlockers, e.g.
-// setting a baseFee == 0 and expecting this condition to continue after commit
-func CommitAndCreateNewCtx(ctx sdk.Context, app *app.Evmos, t time.Duration, vs *cmttypes.ValidatorSet) (sdk.Context, error) {
-	header, err := commit(ctx, app, t, vs)
-	if err != nil {
-		return ctx, err
-	}
+	header.Height++
+	header.Time = header.Time.Add(t)
+	header.AppHash = app.LastCommitID().Hash
 
-	// NewContext function keeps the multistore
-	// but resets other context fields
-	// GasMeter is set as InfiniteGasMeter
-	newCtx := app.BaseApp.NewContextLegacy(false, header)
-	// set the reseted fields to keep the current ctx settings
-	newCtx = newCtx.WithMinGasPrices(ctx.MinGasPrices())
-	newCtx = newCtx.WithEventManager(ctx.EventManager())
-	newCtx = newCtx.WithKVGasConfig(ctx.KVGasConfig())
-	newCtx = newCtx.WithTransientKVGasConfig(ctx.TransientKVGasConfig())
+	app.BeginBlock(abci.RequestBeginBlock{
+		Header: header,
+	})
 
-	return newCtx, nil
+	return app.BaseApp.NewContext(false, header), nil
 }
 
 // DeliverTx delivers a cosmos tx for a given set of msgs
@@ -63,8 +73,8 @@ func DeliverTx(
 	priv cryptotypes.PrivKey,
 	gasPrice *sdkmath.Int,
 	msgs ...sdk.Msg,
-) (abci.ExecTxResult, error) {
-	txConfig := appEvmos.GetTxConfig()
+) (abci.ResponseDeliverTx, error) {
+	txConfig := encoding.MakeConfig(app.ModuleBasics).TxConfig
 	tx, err := tx.PrepareCosmosTx(
 		ctx,
 		appEvmos,
@@ -78,7 +88,7 @@ func DeliverTx(
 		},
 	)
 	if err != nil {
-		return abci.ExecTxResult{}, err
+		return abci.ResponseDeliverTx{}, err
 	}
 	return BroadcastTxBytes(appEvmos, txConfig.TxEncoder(), tx)
 }
@@ -90,47 +100,14 @@ func DeliverEthTx(
 	appEvmos *app.Evmos,
 	priv cryptotypes.PrivKey,
 	msgs ...sdk.Msg,
-) (abci.ExecTxResult, error) {
-	txConfig := appEvmos.GetTxConfig()
+) (abci.ResponseDeliverTx, error) {
+	txConfig := encoding.MakeConfig(app.ModuleBasics).TxConfig
 
-	tx, err := tx.PrepareEthTx(txConfig, priv, msgs...)
+	tx, err := tx.PrepareEthTx(txConfig, appEvmos, priv, msgs...)
 	if err != nil {
-		return abci.ExecTxResult{}, err
+		return abci.ResponseDeliverTx{}, err
 	}
-	res, err := BroadcastTxBytes(appEvmos, txConfig.TxEncoder(), tx)
-	if err != nil {
-		return res, err
-	}
-
-	codec := appEvmos.AppCodec()
-	if _, err := CheckEthTxResponse(res, codec); err != nil {
-		return res, err
-	}
-	return res, nil
-}
-
-// DeliverEthTxWithoutCheck generates and broadcasts a Cosmos Tx populated with MsgEthereumTx messages.
-// If a private key is provided, it will attempt to sign all messages with the given private key,
-// otherwise, it will assume the messages have already been signed. It does not check if the Eth tx is
-// successful or not.
-func DeliverEthTxWithoutCheck(
-	appEvmos *app.Evmos,
-	priv cryptotypes.PrivKey,
-	msgs ...sdk.Msg,
-) (abci.ExecTxResult, error) {
-	txConfig := appEvmos.GetTxConfig()
-
-	tx, err := tx.PrepareEthTx(txConfig, priv, msgs...)
-	if err != nil {
-		return abci.ExecTxResult{}, err
-	}
-
-	res, err := BroadcastTxBytes(appEvmos, txConfig.TxEncoder(), tx)
-	if err != nil {
-		return abci.ExecTxResult{}, err
-	}
-
-	return res, nil
+	return BroadcastTxBytes(appEvmos, txConfig.TxEncoder(), tx)
 }
 
 // CheckTx checks a cosmos tx for a given set of msgs
@@ -141,7 +118,7 @@ func CheckTx(
 	gasPrice *sdkmath.Int,
 	msgs ...sdk.Msg,
 ) (abci.ResponseCheckTx, error) {
-	txConfig := appEvmos.GetTxConfig()
+	txConfig := encoding.MakeConfig(app.ModuleBasics).TxConfig
 
 	tx, err := tx.PrepareCosmosTx(
 		ctx,
@@ -167,9 +144,9 @@ func CheckEthTx(
 	priv cryptotypes.PrivKey,
 	msgs ...sdk.Msg,
 ) (abci.ResponseCheckTx, error) {
-	txConfig := appEvmos.GetTxConfig()
+	txConfig := encoding.MakeConfig(app.ModuleBasics).TxConfig
 
-	tx, err := tx.PrepareEthTx(txConfig, priv, msgs...)
+	tx, err := tx.PrepareEthTx(txConfig, appEvmos, priv, msgs...)
 	if err != nil {
 		return abci.ResponseCheckTx{}, err
 	}
@@ -177,67 +154,20 @@ func CheckEthTx(
 }
 
 // BroadcastTxBytes encodes a transaction and calls DeliverTx on the app.
-func BroadcastTxBytes(app *app.Evmos, txEncoder sdk.TxEncoder, tx sdk.Tx) (abci.ExecTxResult, error) {
+func BroadcastTxBytes(app *app.Evmos, txEncoder sdk.TxEncoder, tx sdk.Tx) (abci.ResponseDeliverTx, error) {
 	// bz are bytes to be broadcasted over the network
 	bz, err := txEncoder(tx)
 	if err != nil {
-		return abci.ExecTxResult{}, err
+		return abci.ResponseDeliverTx{}, err
 	}
 
-	req := abci.RequestFinalizeBlock{Txs: [][]byte{bz}}
-
-	res, err := app.BaseApp.FinalizeBlock(&req)
-	if err != nil {
-		return abci.ExecTxResult{}, err
-	}
-	if len(res.TxResults) != 1 {
-		return abci.ExecTxResult{}, fmt.Errorf("unexpected transaction results. Expected 1, got: %d", len(res.TxResults))
-	}
-	txRes := res.TxResults[0]
-	if txRes.Code != 0 {
-		return abci.ExecTxResult{}, errorsmod.Wrapf(errortypes.ErrInvalidRequest, "log: %s", txRes.Log)
+	req := abci.RequestDeliverTx{Tx: bz}
+	res := app.BaseApp.DeliverTx(req)
+	if res.Code != 0 {
+		return abci.ResponseDeliverTx{}, errorsmod.Wrapf(errortypes.ErrInvalidRequest, res.Log)
 	}
 
-	return *txRes, nil
-}
-
-// commit is a private helper function that runs the EndBlocker logic, commits the changes,
-// updates the header, runs the BeginBlocker function and returns the updated header
-func commit(ctx sdk.Context, app *app.Evmos, t time.Duration, vs *cmttypes.ValidatorSet) (tmproto.Header, error) {
-	header := ctx.BlockHeader()
-	req := abci.RequestFinalizeBlock{Height: header.Height}
-
-	if vs != nil {
-		res, err := app.FinalizeBlock(&req)
-		if err != nil {
-			return header, err
-		}
-
-		nextVals, err := applyValSetChanges(vs, res.ValidatorUpdates)
-		if err != nil {
-			return header, err
-		}
-		header.ValidatorsHash = vs.Hash()
-		header.NextValidatorsHash = nextVals.Hash()
-	} else {
-		if _, err := app.EndBlocker(ctx); err != nil {
-			return header, err
-		}
-	}
-
-	if _, err := app.Commit(); err != nil {
-		return header, err
-	}
-
-	header.Height++
-	header.Time = header.Time.Add(t)
-	header.AppHash = app.LastCommitID().Hash
-
-	if _, err := app.BeginBlocker(ctx); err != nil {
-		return header, err
-	}
-
-	return header, nil
+	return res, nil
 }
 
 // checkTxBytes encodes a transaction and calls checkTx on the app.
@@ -248,21 +178,18 @@ func checkTxBytes(app *app.Evmos, txEncoder sdk.TxEncoder, tx sdk.Tx) (abci.Resp
 	}
 
 	req := abci.RequestCheckTx{Tx: bz}
-	res, err := app.BaseApp.CheckTx(&req)
-	if err != nil {
-		return abci.ResponseCheckTx{}, err
-	}
+	res := app.BaseApp.CheckTx(req)
 	if res.Code != 0 {
-		return abci.ResponseCheckTx{}, errorsmod.Wrapf(errortypes.ErrInvalidRequest, "log: %s", res.Log)
+		return abci.ResponseCheckTx{}, errorsmod.Wrapf(errortypes.ErrInvalidRequest, res.Log)
 	}
 
-	return *res, nil
+	return res, nil
 }
 
-// applyValSetChanges takes in cmttypes.ValidatorSet and []abci.ValidatorUpdate and will return a new cmttypes.ValidatorSet which has the
+// applyValSetChanges takes in tmtypes.ValidatorSet and []abci.ValidatorUpdate and will return a new tmtypes.ValidatorSet which has the
 // provided validator updates applied to the provided validator set.
-func applyValSetChanges(valSet *cmttypes.ValidatorSet, valUpdates []abci.ValidatorUpdate) (*cmttypes.ValidatorSet, error) {
-	updates, err := cmttypes.PB2TM.ValidatorUpdates(valUpdates)
+func applyValSetChanges(valSet *tmtypes.ValidatorSet, valUpdates []abci.ValidatorUpdate) (*tmtypes.ValidatorSet, error) {
+	updates, err := tmtypes.PB2TM.ValidatorUpdates(valUpdates)
 	if err != nil {
 		return nil, err
 	}

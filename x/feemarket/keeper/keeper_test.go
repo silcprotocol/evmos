@@ -1,19 +1,13 @@
 package keeper_test
 
 import (
-	"testing"
+	_ "embed"
+	"math/big"
 
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
-	"github.com/stretchr/testify/require"
 )
 
-func TestSetGetBlockGasWanted(t *testing.T) {
-	var (
-		nw  *network.UnitTestNetwork
-		ctx sdk.Context
-	)
+func (suite *KeeperTestSuite) TestSetGetBlockGasWanted() {
 	testCases := []struct {
 		name     string
 		malleate func()
@@ -22,54 +16,38 @@ func TestSetGetBlockGasWanted(t *testing.T) {
 		{
 			"with last block given",
 			func() {
-				nw.App.FeeMarketKeeper.SetBlockGasWanted(ctx, uint64(1000000))
+				suite.app.FeeMarketKeeper.SetBlockGasWanted(suite.ctx, uint64(1000000))
 			},
 			uint64(1000000),
 		},
 	}
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// reset network and context
-			nw = network.NewUnitTestNetwork()
-			ctx = nw.GetContext()
+		tc.malleate()
 
-			tc.malleate()
-
-			gas := nw.App.FeeMarketKeeper.GetBlockGasWanted(ctx)
-			require.Equal(t, tc.expGas, gas, tc.name)
-		})
+		gas := suite.app.FeeMarketKeeper.GetBlockGasWanted(suite.ctx)
+		suite.Require().Equal(tc.expGas, gas, tc.name)
 	}
 }
 
-func TestSetGetGasFee(t *testing.T) {
-	var (
-		nw  *network.UnitTestNetwork
-		ctx sdk.Context
-	)
+func (suite *KeeperTestSuite) TestSetGetGasFee() {
 	testCases := []struct {
 		name     string
 		malleate func()
-		expFee   math.LegacyDec
+		expFee   *big.Int
 	}{
 		{
 			"with last block given",
 			func() {
-				nw.App.FeeMarketKeeper.SetBaseFee(ctx, math.LegacyOneDec())
+				suite.app.FeeMarketKeeper.SetBaseFee(suite.ctx, sdk.OneDec().BigInt())
 			},
-			math.LegacyOneDec(),
+			sdk.OneDec().BigInt(),
 		},
 	}
 
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// reset network and context
-			nw = network.NewUnitTestNetwork()
-			ctx = nw.GetContext()
+		tc.malleate()
 
-			tc.malleate()
-
-			fee := nw.App.FeeMarketKeeper.GetBaseFee(ctx)
-			require.Equal(t, tc.expFee, fee, tc.name)
-		})
+		fee := suite.app.FeeMarketKeeper.GetBaseFee(suite.ctx)
+		suite.Require().Equal(tc.expFee, fee, tc.name)
 	}
 }

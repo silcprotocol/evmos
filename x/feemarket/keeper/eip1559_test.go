@@ -1,36 +1,28 @@
 package keeper_test
 
 import (
-	"testing"
+	"fmt"
+	"math/big"
 
-	"cosmossdk.io/math"
-	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/evmos/evmos/v20/testutil/integration/evmos/network"
-	"github.com/stretchr/testify/require"
+	abci "github.com/tendermint/tendermint/abci/types"
 )
 
-func TestCalculateBaseFee(t *testing.T) {
-	var (
-		nw             *network.UnitTestNetwork
-		ctx            sdk.Context
-		initialBaseFee math.LegacyDec
-	)
-
+func (suite *KeeperTestSuite) TestCalculateBaseFee() {
 	testCases := []struct {
 		name                 string
 		NoBaseFee            bool
 		blockHeight          int64
 		parentBlockGasWanted uint64
-		minGasPrice          math.LegacyDec
-		expFee               func() math.LegacyDec
+		minGasPrice          sdk.Dec
+		expFee               *big.Int
 	}{
 		{
 			"without BaseFee",
 			true,
 			0,
 			0,
-			math.LegacyZeroDec(),
+			sdk.ZeroDec(),
 			nil,
 		},
 		{
@@ -38,91 +30,87 @@ func TestCalculateBaseFee(t *testing.T) {
 			false,
 			0,
 			0,
-			math.LegacyZeroDec(),
-			func() math.LegacyDec { return nw.App.FeeMarketKeeper.GetParams(ctx).BaseFee },
+			sdk.ZeroDec(),
+			suite.app.FeeMarketKeeper.GetParams(suite.ctx).BaseFee.BigInt(),
 		},
 		{
 			"with BaseFee - parent block wanted the same gas as its target (ElasticityMultiplier = 2)",
 			false,
 			1,
 			50,
-			math.LegacyZeroDec(),
-			func() math.LegacyDec { return nw.App.FeeMarketKeeper.GetParams(ctx).BaseFee },
+			sdk.ZeroDec(),
+			suite.app.FeeMarketKeeper.GetParams(suite.ctx).BaseFee.BigInt(),
 		},
 		{
 			"with BaseFee - parent block wanted the same gas as its target, with higher min gas price (ElasticityMultiplier = 2)",
 			false,
 			1,
 			50,
-			math.LegacyNewDec(1500000000),
-			func() math.LegacyDec { return nw.App.FeeMarketKeeper.GetParams(ctx).BaseFee },
+			sdk.NewDec(1500000000),
+			suite.app.FeeMarketKeeper.GetParams(suite.ctx).BaseFee.BigInt(),
 		},
 		{
 			"with BaseFee - parent block wanted more gas than its target (ElasticityMultiplier = 2)",
 			false,
 			1,
 			100,
-			math.LegacyZeroDec(),
-			func() math.LegacyDec { return initialBaseFee.Add(math.LegacyNewDec(109375000)) },
+			sdk.ZeroDec(),
+			big.NewInt(1125000000),
 		},
 		{
 			"with BaseFee - parent block wanted more gas than its target, with higher min gas price (ElasticityMultiplier = 2)",
 			false,
 			1,
 			100,
-			math.LegacyNewDec(1500000000),
-			func() math.LegacyDec { return initialBaseFee.Add(math.LegacyNewDec(109375000)) },
+			sdk.NewDec(1500000000),
+			big.NewInt(1125000000),
 		},
 		{
 			"with BaseFee - Parent gas wanted smaller than parent gas target (ElasticityMultiplier = 2)",
 			false,
 			1,
 			25,
-			math.LegacyZeroDec(),
-			func() math.LegacyDec { return initialBaseFee.Sub(math.LegacyNewDec(54687500)) },
+			sdk.ZeroDec(),
+			big.NewInt(937500000),
 		},
 		{
 			"with BaseFee - Parent gas wanted smaller than parent gas target, with higher min gas price (ElasticityMultiplier = 2)",
 			false,
 			1,
 			25,
-			math.LegacyNewDec(1500000000),
-			func() math.LegacyDec { return math.LegacyNewDec(1500000000) },
+			sdk.NewDec(1500000000),
+			big.NewInt(1500000000),
 		},
 	}
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// reset network and context
-			nw = network.NewUnitTestNetwork()
-			ctx = nw.GetContext()
+		suite.Run(fmt.Sprintf("Case %s", tc.name), func() {
+			suite.SetupTest() // reset
 
-			params := nw.App.FeeMarketKeeper.GetParams(ctx)
+			params := suite.app.FeeMarketKeeper.GetParams(suite.ctx)
 			params.NoBaseFee = tc.NoBaseFee
 			params.MinGasPrice = tc.minGasPrice
-			err := nw.App.FeeMarketKeeper.SetParams(ctx, params)
-			require.NoError(t, err)
-
-			initialBaseFee = params.BaseFee
+			err := suite.app.FeeMarketKeeper.SetParams(suite.ctx, params)
+			suite.Require().NoError(err)
 
 			// Set block height
-			ctx = ctx.WithBlockHeight(tc.blockHeight)
+			suite.ctx = suite.ctx.WithBlockHeight(tc.blockHeight)
 
 			// Set parent block gas
-			nw.App.FeeMarketKeeper.SetBlockGasWanted(ctx, tc.parentBlockGasWanted)
+			suite.app.FeeMarketKeeper.SetBlockGasWanted(suite.ctx, tc.parentBlockGasWanted)
 
 			// Set next block target/gasLimit through Consensus Param MaxGas
-			blockParams := tmproto.BlockParams{
+			blockParams := abci.BlockParams{
 				MaxGas:   100,
 				MaxBytes: 10,
 			}
-			consParams := tmproto.ConsensusParams{Block: &blockParams}
-			ctx = ctx.WithConsensusParams(consParams)
+			consParams := abci.ConsensusParams{Block: &blockParams}
+			suite.ctx = suite.ctx.WithConsensusParams(&consParams)
 
-			fee := nw.App.FeeMarketKeeper.CalculateBaseFee(ctx)
+			fee := suite.app.FeeMarketKeeper.CalculateBaseFee(suite.ctx)
 			if tc.NoBaseFee {
-				require.True(t, fee.IsNil(), tc.name)
+				suite.Require().Nil(fee, tc.name)
 			} else {
-				require.Equal(t, tc.expFee(), fee, tc.name)
+				suite.Require().Equal(tc.expFee, fee, tc.name)
 			}
 		})
 	}

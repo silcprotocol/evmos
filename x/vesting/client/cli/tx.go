@@ -1,11 +1,23 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
+// Copyright 2022 Evmos Foundation
+// This file is part of the Evmos Network packages.
+//
+// Evmos is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The Evmos packages are distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the Evmos packages. If not, see https://github.com/evmos/evmos/blob/main/LICENSE
 
 package cli
 
 import (
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -16,19 +28,21 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkvesting "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
 
-	"github.com/evmos/evmos/v20/x/vesting/types"
+	"github.com/evmos/evmos/v12/x/vesting/types"
 )
 
 // Transaction command flags
 const (
+	FlagDelayed  = "delayed"
 	FlagDest     = "dest"
 	FlagLockup   = "lockup"
+	FlagMerge    = "merge"
 	FlagVesting  = "vesting"
 	FlagClawback = "clawback"
 	FlagFunder   = "funder"
 )
 
-// NewTxCmd returns a root CLI command handler for vesting
+// NewTxCmd returns a root CLI command handler for certain modules/vesting
 // transaction commands.
 func NewTxCmd() *cobra.Command {
 	txCmd := &cobra.Command{
@@ -41,7 +55,6 @@ func NewTxCmd() *cobra.Command {
 
 	txCmd.AddCommand(
 		NewMsgCreateClawbackVestingAccountCmd(),
-		NewMsgFundVestingAccountCmd(),
 		NewMsgClawbackCmd(),
 		NewMsgUpdateVestingFunderCmd(),
 		NewMsgConvertVestingAccountCmd(),
@@ -51,46 +64,11 @@ func NewTxCmd() *cobra.Command {
 }
 
 // NewMsgCreateClawbackVestingAccountCmd returns a CLI command handler for creating a
-// clawback vesting account.
+// MsgCreateClawbackVestingAccount transaction.
 func NewMsgCreateClawbackVestingAccountCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "create-clawback-vesting-account FUNDER_ADDRESS ENABLE_GOV_CLAWBACK",
-		Short: "Create a new vesting account at the address of the sender with a designated funder.",
-		Long: `A new clawback vesting account is created for the sender account, if it is not already of such type.
-Only the designated funder will be able to define lockup and vesting schedules and has to do so
-using the fund-vesting-account subcommand. Clawback via governance is enabled through the second argument.`,
-		Args: cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, err := client.GetClientTxContext(cmd)
-			if err != nil {
-				return err
-			}
-
-			funder, err := sdk.AccAddressFromBech32(args[0])
-			if err != nil {
-				return err
-			}
-
-			enableGovClawback, err := strconv.ParseBool(args[1])
-			if err != nil {
-				return err
-			}
-
-			msg := types.NewMsgCreateClawbackVestingAccount(funder, clientCtx.GetFromAddress(), enableGovClawback)
-
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
-		},
-	}
-
-	flags.AddTxFlagsToCmd(cmd)
-	return cmd
-}
-
-// NewMsgFundVestingAccountCmd returns a CLI command handler for funding a clawback vesting account.
-func NewMsgFundVestingAccountCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "fund-vesting-account TO_ADDRESS",
-		Short: "Fund a vesting account with an allocation of tokens.",
+		Use:   "create-clawback-vesting-account TO_ADDRESS",
+		Short: "Create a new vesting account funded with an allocation of tokens, subject to clawback.",
 		Long: `Must provide a lockup periods file (--lockup), a vesting periods file (--vesting), or both.
 If both files are given, they must describe schedules for the same total amount.
 If one file is omitted, it will default to a schedule that immediately unlocks or vests the entire amount.
@@ -151,19 +129,26 @@ with a start time and an array of coins strings and durations relative to the st
 
 			commonStart, _ := types.AlignSchedules(lockupStart, vestingStart, lockupPeriods, vestingPeriods)
 
-			msg := types.NewMsgFundVestingAccount(clientCtx.GetFromAddress(), toAddr, time.Unix(commonStart, 0), lockupPeriods, vestingPeriods)
+			merge, _ := cmd.Flags().GetBool(FlagMerge)
+
+			msg := types.NewMsgCreateClawbackVestingAccount(clientCtx.GetFromAddress(), toAddr, time.Unix(commonStart, 0), lockupPeriods, vestingPeriods, merge)
+			if err := msg.ValidateBasic(); err != nil {
+				return err
+			}
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
 
+	cmd.Flags().Bool(FlagMerge, false, "Merge new amount and schedule with existing ClawbackVestingAccount, if any")
 	cmd.Flags().String(FlagLockup, "", "path to file containing unlocking periods")
 	cmd.Flags().String(FlagVesting, "", "path to file containing vesting periods")
 	flags.AddTxFlagsToCmd(cmd)
 	return cmd
 }
 
-// NewMsgClawbackCmd returns a CLI command handler for clawing back unvested funds.
+// NewMsgClawbackCmd returns a CLI command handler for creating a
+// MsgClawback transaction.
 func NewMsgClawbackCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "clawback ADDRESS",
@@ -194,6 +179,9 @@ func NewMsgClawbackCmd() *cobra.Command {
 			}
 
 			msg := types.NewMsgClawback(clientCtx.GetFromAddress(), addr, dest)
+			if err := msg.ValidateBasic(); err != nil {
+				return err
+			}
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
@@ -230,6 +218,9 @@ func NewMsgUpdateVestingFunderCmd() *cobra.Command {
 			}
 
 			msg := types.NewMsgUpdateVestingFunder(clientCtx.GetFromAddress(), newFunder, vestingAcc)
+			if err := msg.ValidateBasic(); err != nil {
+				return err
+			}
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
@@ -238,8 +229,8 @@ func NewMsgUpdateVestingFunderCmd() *cobra.Command {
 	return cmd
 }
 
-// NewMsgConvertVestingAccountCmd returns a CLI command handler for converting
-// a clawback vesting account into a non-vesting account.
+// NewMsgConvertVestingAccountCmd returns a CLI command handler for creating a
+// MsgConvertVestingAccount transaction.
 func NewMsgConvertVestingAccountCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "convert VESTING_ACCOUNT_ADDRESS",
@@ -260,6 +251,9 @@ func NewMsgConvertVestingAccountCmd() *cobra.Command {
 			}
 
 			msg := types.NewMsgConvertVestingAccount(addr)
+			if err := msg.ValidateBasic(); err != nil {
+				return err
+			}
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
